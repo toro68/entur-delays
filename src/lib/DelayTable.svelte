@@ -45,6 +45,12 @@
     });
   }
 
+  function formatJourneyId(id) {
+    if (!id) return "–";
+    const s = String(id);
+    return s.length > 12 ? s.slice(-12) : s;
+  }
+
   function getDelayClass(delayMin) {
     if (delayMin >= 10) return "delay-high";
     if (delayMin >= 5) return "delay-medium";
@@ -155,6 +161,7 @@
         <thead>
           <tr>
             <th class="col-delay">Forsinkelse</th>
+            <th class="col-journey">Tur</th>
             <th class="col-line">Linje</th>
             <th class="col-dest">Destinasjon</th>
             <th class="col-stop">Stopp</th>
@@ -167,6 +174,9 @@
             <tr>
               <td class="col-delay {getDelayClass(row.delayMin)}">
                 {row.delayMin} min
+              </td>
+              <td class="col-journey" title={row.serviceJourneyId ?? ""}>
+                {formatJourneyId(row.serviceJourneyId)}
               </td>
               <td class="col-line">
                 <span class="line-badge">{row.linePublicCode ?? row.lineName ?? "–"}</span>
@@ -183,7 +193,7 @@
             </tr>
           {:else}
             <tr>
-              <td colspan="6" class="no-data">Ingen treff</td>
+              <td colspan="7" class="no-data">Ingen treff</td>
             </tr>
           {/each}
         </tbody>
@@ -372,6 +382,12 @@
   .col-delay {
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+  }
+
+  .col-journey {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-variant-numeric: tabular-nums;
+    color: #94a3b8;
   }
 
   .delay-high {
