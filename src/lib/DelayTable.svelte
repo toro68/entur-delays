@@ -6,6 +6,7 @@
   const REFRESH_MS = 60000; // 1 minutt
   const INITIAL_TOP_N = 25;
   const TOP_N_STEP = 25;
+  const INITIAL_PAGE = 1;
   const DEFAULT_MAX_STOPS_BY_ZONE = {
     "Nord-Jæren": 300,
     "Jæren": 100,
@@ -25,6 +26,7 @@
   let activeZone = $state(ZONES[0]);
   let topN = $state(INITIAL_TOP_N);
   let includeAllStops = $state(false);
+  let page = $state(INITIAL_PAGE);
 
   function normalizeQuery(value) {
     return String(value ?? "")
@@ -104,25 +106,42 @@
       .filter((row) => rowMatchesQuery(row, normalizedQuery))
   );
 
+  const pageCount = $derived(Math.max(1, Math.ceil(filteredDelays.length / TOP_N_STEP)));
+  const pagedDelays = $derived(
+    filteredDelays.slice((page - 1) * TOP_N_STEP, (page - 1) * TOP_N_STEP + TOP_N_STEP)
+  );
+
   function setZone(zone) {
     if (zone === activeZone) return;
     activeZone = zone;
     query = "";
     topN = INITIAL_TOP_N;
     includeAllStops = false;
+    page = INITIAL_PAGE;
     loading = true;
     fetchDelays();
   }
 
   function showMore() {
+    if (page < pageCount) {
+      page += 1;
+      return;
+    }
     topN += TOP_N_STEP;
+    page += 1;
     loading = true;
     fetchDelays();
+  }
+
+  function showPrevious() {
+    if (page <= 1) return;
+    page -= 1;
   }
 
   function loadAllStops() {
     includeAllStops = true;
     topN = INITIAL_TOP_N;
+    page = INITIAL_PAGE;
     loading = true;
     fetchDelays();
   }
@@ -188,9 +207,13 @@
           Last alle stopp i {activeZone}
         </button>
       {/if}
-      <button type="button" class="action" onclick={showMore}>
-        Vis neste {TOP_N_STEP}
+      <button type="button" class="action" onclick={showPrevious} disabled={page <= 1}>
+        Forrige
       </button>
+      <button type="button" class="action" onclick={showMore}>
+        Neste
+      </button>
+      <div class="page-status">Side {page} av {pageCount}</div>
     </div>
 
     <div class="table-container">
@@ -207,7 +230,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each filteredDelays as row (getRowKey(row))}
+          {#each pagedDelays as row (getRowKey(row))}
             <tr>
               <td class="col-delay {getDelayClass(row.delayMin)}">
                 {row.delayMin} min
@@ -336,6 +359,19 @@
       box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
       border-color: rgba(96, 165, 250, 0.55);
     }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  .page-status {
+    align-self: center;
+    color: #94a3b8;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-left: auto;
   }
 
   .zone-tabs {
