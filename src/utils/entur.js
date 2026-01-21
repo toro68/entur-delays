@@ -147,6 +147,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const BATCH_SIZE = 25;
   const rows = [];
   const seen = new Set();
+  const rowKeys = new Set();
 
   // Hent alle stoppesteder (allerede prioritert etter sone)
   for (let i = 0; i < stopPlaceIds.length; i += BATCH_SIZE) {
@@ -200,8 +201,18 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
     }
   }
 
-  rows.sort((a, b) => b.delayMin - a.delayMin);
-  const result = rows.slice(0, TOP_N);
+  // Dedup by (line + destination + stop + expected time + delay)
+  // Some journeys/calls come through without stable serviceJourneyId.
+  const uniqueRows = [];
+  for (const row of rows) {
+    const key = `${row.linePublicCode ?? row.lineName ?? ''}|${row.destination ?? ''}|${row.stopPlaceId ?? ''}|${row.quayId ?? ''}|${row.expectedDepartureTime ?? ''}|${row.delayMin ?? ''}`;
+    if (rowKeys.has(key)) continue;
+    rowKeys.add(key);
+    uniqueRows.push(row);
+  }
+
+  uniqueRows.sort((a, b) => b.delayMin - a.delayMin);
+  const result = uniqueRows.slice(0, TOP_N);
   
   // Cache
   delaysCache = { data: result, fetchedAt: Date.now(), mode, zone };
