@@ -21,7 +21,8 @@ const ZONES = [
   },
   {
     name: 'Dalane',
-    bbox: { minLat: 58.25, maxLat: 58.7, minLon: 5.3, maxLon: 7.0 },
+    // Dalane ligger lenger sør/vest; sørg for at Eigersund/Sokndal dekkes.
+    bbox: { minLat: 58.15, maxLat: 58.7, minLon: 5.2, maxLon: 6.9 },
     maxStops: 80 // Eigersund, Sokndal, Lund, Bjerkreim
   }
 ];
