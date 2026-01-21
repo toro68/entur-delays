@@ -7,7 +7,7 @@ const ZONES = [
   {
     name: 'Nord-Jæren',
     bbox: { minLat: 58.85, maxLat: 59.05, minLon: 5.6, maxLon: 6.1 },
-    maxStops: 200 // Stavanger, Sandnes, Sola, Randaberg
+    maxStops: 300 // Stavanger, Sandnes, Sola, Randaberg
   },
   {
     name: 'Jæren',
