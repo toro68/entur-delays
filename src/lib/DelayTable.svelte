@@ -4,6 +4,14 @@
   import { REGIONS, getRegionByLabel, isRowInRegion } from "../config/regions.js";
 
   const REFRESH_MS = 60000; // 1 minutt
+  const INITIAL_TOP_N = 25;
+  const TOP_N_STEP = 25;
+  const DEFAULT_MAX_STOPS_BY_ZONE = {
+    "Nord-Jæren": 300,
+    "Jæren": 100,
+    "Ryfylke": 60,
+    "Dalane": 40,
+  };
 
   const ZONES = REGIONS.map((r) => r.label);
 
@@ -15,6 +23,8 @@
   let error = $state(null);
   let intervalId = null;
   let activeZone = $state(ZONES[0]);
+  let topN = $state(INITIAL_TOP_N);
+  let includeAllStops = $state(false);
 
   function normalizeQuery(value) {
     return String(value ?? "")
@@ -61,7 +71,8 @@
     const isInitial = loading;
     if (!isInitial) refreshing = true;
     try {
-      const result = await fetchTopDelays("bus", { zone: activeZone });
+      const maxStops = includeAllStops ? Number.POSITIVE_INFINITY : DEFAULT_MAX_STOPS_BY_ZONE[activeZone];
+      const result = await fetchTopDelays("bus", { zone: activeZone, topN, maxStops });
 
       error = null;
       delays = result.data ?? [];
@@ -97,6 +108,21 @@
     if (zone === activeZone) return;
     activeZone = zone;
     query = "";
+    topN = INITIAL_TOP_N;
+    includeAllStops = false;
+    loading = true;
+    fetchDelays();
+  }
+
+  function showMore() {
+    topN += TOP_N_STEP;
+    loading = true;
+    fetchDelays();
+  }
+
+  function loadAllStops() {
+    includeAllStops = true;
+    topN = INITIAL_TOP_N;
     loading = true;
     fetchDelays();
   }
@@ -154,6 +180,17 @@
       {#if normalizedQuery}
         <div class="result-count">Viser {filteredDelays.length} av {delays.length}</div>
       {/if}
+    </div>
+
+    <div class="actions">
+      {#if !includeAllStops}
+        <button type="button" class="action" onclick={loadAllStops}>
+          Last alle stopp i {activeZone}
+        </button>
+      {/if}
+      <button type="button" class="action" onclick={showMore}>
+        Vis neste {TOP_N_STEP}
+      </button>
     </div>
 
     <div class="table-container">
@@ -269,6 +306,36 @@
     justify-content: space-between;
     gap: 16px;
     border-bottom: 1px solid $panel-soft;
+  }
+
+  .actions {
+    padding: 12px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    border-bottom: 1px solid $panel-soft;
+  }
+
+  .action {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(15, 23, 42, 0.55);
+    color: #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover {
+      border-color: rgba(96, 165, 250, 0.55);
+      background: rgba(96, 165, 250, 0.12);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
+      border-color: rgba(96, 165, 250, 0.55);
+    }
   }
 
   .zone-tabs {

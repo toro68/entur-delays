@@ -1,7 +1,7 @@
 // Entur GraphQL API - direkte kall fra browser
 const ENTUR_ENDPOINT = 'https://api.entur.io/journey-planner/v3/graphql';
 const ENTUR_CLIENT_NAME = 'aftenbladet-forsinkelser';
-const TOP_N = 25;
+const TOP_N_DEFAULT = 25;
 
 const ZONES = [
   {
@@ -69,7 +69,7 @@ const STOP_PLACE_DEPARTURES_QUERY = `
 `;
 
 // Cache
-let stopPlaceIdsCache = { ids: [], fetchedAt: 0, zone: '' };
+let stopPlaceIdsCache = { ids: [], fetchedAt: 0, zone: '', maxStops: 0 };
 let delaysCache = { data: [], fetchedAt: 0, mode: '', zone: '' };
 const STOP_PLACE_CACHE_TTL = 10 * 60 * 1000; // 10 min
 const DELAYS_CACHE_TTL = 30 * 1000; // 30 sec
@@ -103,27 +103,38 @@ async function enturGraphql(query, variables) {
   return json.data;
 }
 
-async function getStopPlaceIdsByZone(zoneName) {
+async function getStopPlaceIdsByZone(zoneName, maxStopsOverride) {
   const now = Date.now();
+  const cacheMaxStops = Number.isFinite(stopPlaceIdsCache.maxStops)
+    ? stopPlaceIdsCache.maxStops
+    : 0;
+  const requestedMaxStops = Number.isFinite(maxStopsOverride) ? maxStopsOverride : null;
+
   if (
     stopPlaceIdsCache.ids.length > 0 &&
     stopPlaceIdsCache.zone === zoneName &&
+    (requestedMaxStops == null || cacheMaxStops >= requestedMaxStops) &&
     now - stopPlaceIdsCache.fetchedAt < STOP_PLACE_CACHE_TTL
   ) {
-    return stopPlaceIdsCache.ids;
+    return requestedMaxStops == null
+      ? stopPlaceIdsCache.ids
+      : stopPlaceIdsCache.ids.slice(0, requestedMaxStops);
   }
 
   const zone = ZONES.find((candidate) => candidate.name === zoneName) ?? ZONES[0];
   const data = await enturGraphql(STOP_PLACES_QUERY, zone.bbox);
-  const ids = (data?.stopPlacesByBbox ?? []).map((sp) => sp.id).slice(0, zone.maxStops);
+  const maxStops = Number.isFinite(maxStopsOverride) ? maxStopsOverride : zone.maxStops;
+  const ids = (data?.stopPlacesByBbox ?? []).map((sp) => sp.id).slice(0, maxStops);
 
-  stopPlaceIdsCache = { ids, fetchedAt: now, zone: zone.name };
+  stopPlaceIdsCache = { ids, fetchedAt: now, zone: zone.name, maxStops };
   return ids;
 }
 
 export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const mode = transportMode.toLowerCase();
   const zone = options?.zone ?? ZONES[0].name;
+  const topN = options?.topN ?? TOP_N_DEFAULT;
+  const maxStopsOverride = options?.maxStops;
   
   // Return cached data if fresh
   const now = Date.now();
@@ -136,12 +147,12 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
     return {
       generatedAt: new Date(delaysCache.fetchedAt).toISOString(),
       transportMode: mode,
-      topN: TOP_N,
+      topN,
       data: delaysCache.data
     };
   }
 
-  const stopPlaceIds = await getStopPlaceIdsByZone(zone);
+  const stopPlaceIds = await getStopPlaceIdsByZone(zone, maxStopsOverride);
 
   // Fetch in batches (single GraphQL request per batch)
   const BATCH_SIZE = 25;
@@ -215,15 +226,15 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
 
   const uniqueRows = Array.from(dedupedMap.values());
   uniqueRows.sort((a, b) => b.delayMin - a.delayMin);
-  const result = uniqueRows.slice(0, TOP_N);
+  const result = uniqueRows.slice(0, topN);
   
   // Cache
   delaysCache = { data: result, fetchedAt: Date.now(), mode, zone };
   
   return {
-    generatedAt: new Date().toISOString(),
-    transportMode: mode,
-    topN: TOP_N,
-    data: result
+      generatedAt: new Date().toISOString(),
+      transportMode: mode,
+      topN,
+      data: result
   };
 }
