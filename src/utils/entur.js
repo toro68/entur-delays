@@ -2,15 +2,31 @@
 const ENTUR_ENDPOINT = 'https://api.entur.io/journey-planner/v3/graphql';
 const ENTUR_CLIENT_NAME = 'aftenbladet-forsinkelser';
 const TOP_N = 25;
-const MAX_STOP_PLACES = 200;
 
-// Bounding box for Sør-Rogaland (ekskluderer Haugalandet)
-const ROGALAND_BBOX = {
-  minLat: 58.4,
-  maxLat: 59.15,
-  minLon: 5.5,
-  maxLon: 7.2
-};
+// Prioriterte soner i Sør-Rogaland (viktigst først)
+// Henter flere stoppesteder fra viktigere områder
+const PRIORITY_ZONES = [
+  {
+    name: 'Nord-Jæren',
+    bbox: { minLat: 58.85, maxLat: 59.05, minLon: 5.6, maxLon: 6.1 },
+    maxStops: 200  // Stavanger, Sandnes, Sola, Randaberg
+  },
+  {
+    name: 'Jæren',
+    bbox: { minLat: 58.6, maxLat: 58.85, minLon: 5.5, maxLon: 6.0 },
+    maxStops: 100  // Time, Klepp, Hå, Gjesdal
+  },
+  {
+    name: 'Ryfylke',
+    bbox: { minLat: 59.0, maxLat: 59.5, minLon: 5.8, maxLon: 7.2 },
+    maxStops: 60   // Strand, Hjelmeland, Forsand
+  },
+  {
+    name: 'Dalane',
+    bbox: { minLat: 58.4, maxLat: 58.6, minLon: 5.8, maxLon: 6.8 },
+    maxStops: 40   // Eigersund, Sokndal, Lund, Bjerkreim
+  }
+];
 
 const STOP_PLACES_QUERY = `
   query StopPlacesByBbox($minLat: Float!, $minLon: Float!, $maxLat: Float!, $maxLon: Float!) {
@@ -89,17 +105,28 @@ async function enturGraphql(query, variables) {
   return json.data;
 }
 
-async function getStopPlaceIds() {
+// Henter stoppesteder fra alle prioriterte soner
+async function getStopPlaceIdsByZone() {
   const now = Date.now();
   if (stopPlaceIdsCache.ids.length > 0 && now - stopPlaceIdsCache.fetchedAt < STOP_PLACE_CACHE_TTL) {
     return stopPlaceIdsCache.ids;
   }
 
-  const data = await enturGraphql(STOP_PLACES_QUERY, ROGALAND_BBOX);
-  const ids = (data?.stopPlacesByBbox ?? []).map(sp => sp.id);
+  const allIds = [];
   
-  stopPlaceIdsCache = { ids, fetchedAt: now };
-  return ids;
+  for (const zone of PRIORITY_ZONES) {
+    const data = await enturGraphql(STOP_PLACES_QUERY, zone.bbox);
+    const zoneIds = (data?.stopPlacesByBbox ?? [])
+      .map(sp => sp.id)
+      .slice(0, zone.maxStops);
+    allIds.push(...zoneIds);
+  }
+  
+  // Fjern eventuelle duplikater (stoppesteder på grensen mellom soner)
+  const uniqueIds = [...new Set(allIds)];
+  
+  stopPlaceIdsCache = { ids: uniqueIds, fetchedAt: now };
+  return uniqueIds;
 }
 
 export async function fetchTopDelays(transportMode = 'bus') {
@@ -118,74 +145,63 @@ export async function fetchTopDelays(transportMode = 'bus') {
     };
   }
 
-  const stopPlaceIds = await getStopPlaceIds();
+  const stopPlaceIds = await getStopPlaceIdsByZone();
 
-  // Adaptiv limit: start lavt og øk til vi har nok kandidater.
-  const limitSteps = [50, 100, 150, MAX_STOP_PLACES];
-  
   // Fetch in batches (single GraphQL request per batch)
   const BATCH_SIZE = 25;
   const rows = [];
   const seen = new Set();
 
-  for (const limit of limitSteps) {
-    const limitedIds = stopPlaceIds.slice(0, Math.min(limit, MAX_STOP_PLACES));
+  // Hent alle stoppesteder (allerede prioritert etter sone)
+  for (let i = 0; i < stopPlaceIds.length; i += BATCH_SIZE) {
+    const batch = stopPlaceIds.slice(i, i + BATCH_SIZE);
 
-    for (let i = 0; i < limitedIds.length; i += BATCH_SIZE) {
-      const batch = limitedIds.slice(i, i + BATCH_SIZE);
+    const data = await enturGraphql(STOP_PLACE_DEPARTURES_QUERY, {
+      ids: batch,
+      numberOfDepartures: 3,
+    }).catch(() => null);
+    const stopPlaces = data?.stopPlaces ?? [];
 
-      const data = await enturGraphql(STOP_PLACE_DEPARTURES_QUERY, {
-        ids: batch,
-        numberOfDepartures: 3,
-      }).catch(() => null);
-      const stopPlaces = data?.stopPlaces ?? [];
+    for (const sp of stopPlaces) {
+      if (!sp) continue;
+      for (const quay of sp.quays ?? []) {
+        for (const call of quay.estimatedCalls ?? []) {
+          const serviceJourneyId = call?.serviceJourney?.id ?? null;
+          const aimedDepartureTime = call?.aimedDepartureTime ?? null;
+          const expectedDepartureTime = call?.expectedDepartureTime ?? null;
 
-      for (const sp of stopPlaces) {
-        if (!sp) continue;
-        for (const quay of sp.quays ?? []) {
-          for (const call of quay.estimatedCalls ?? []) {
-            const serviceJourneyId = call?.serviceJourney?.id ?? null;
-            const aimedDepartureTime = call?.aimedDepartureTime ?? null;
-            const expectedDepartureTime = call?.expectedDepartureTime ?? null;
+          const lineMode = call?.serviceJourney?.line?.transportMode?.toLowerCase();
+          if (mode && lineMode && lineMode !== mode) continue;
 
-            const lineMode = call?.serviceJourney?.line?.transportMode?.toLowerCase();
-            if (mode && lineMode && lineMode !== mode) continue;
+          const delayMin = minutesBetween(aimedDepartureTime, expectedDepartureTime);
+          if (delayMin == null || delayMin <= 0) continue;
 
-            const delayMin = minutesBetween(aimedDepartureTime, expectedDepartureTime);
-            if (delayMin == null || delayMin <= 0) continue;
-
-            // Dedup: same serviceJourney + aimedDepartureTime can appear across stop places.
-            if (serviceJourneyId && aimedDepartureTime) {
-              const key = `${serviceJourneyId}|${aimedDepartureTime}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-            }
-
-            rows.push({
-              delayMin,
-              aimedDepartureTime,
-              expectedDepartureTime,
-              realtime: call.realtime ?? false,
-              destination: call?.destinationDisplay?.frontText ?? null,
-              linePublicCode: call?.serviceJourney?.line?.publicCode ?? null,
-              lineName: call?.serviceJourney?.line?.name ?? null,
-              transportMode: lineMode ?? null,
-              authority: call?.serviceJourney?.line?.authority?.name ?? null,
-              quayName: quay?.name ?? null,
-              stopPlaceName: sp?.name ?? null,
-              quayId: quay?.id ?? null,
-              stopPlaceId: sp?.id ?? null,
-              serviceJourneyId,
-            });
+          // Dedup: same serviceJourney + aimedDepartureTime can appear across stop places.
+          if (serviceJourneyId && aimedDepartureTime) {
+            const key = `${serviceJourneyId}|${aimedDepartureTime}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
           }
+
+          rows.push({
+            delayMin,
+            aimedDepartureTime,
+            expectedDepartureTime,
+            realtime: call.realtime ?? false,
+            destination: call?.destinationDisplay?.frontText ?? null,
+            linePublicCode: call?.serviceJourney?.line?.publicCode ?? null,
+            lineName: call?.serviceJourney?.line?.name ?? null,
+            transportMode: lineMode ?? null,
+            authority: call?.serviceJourney?.line?.authority?.name ?? null,
+            quayName: quay?.name ?? null,
+            stopPlaceName: sp?.name ?? null,
+            quayId: quay?.id ?? null,
+            stopPlaceId: sp?.id ?? null,
+            serviceJourneyId,
+          });
         }
       }
-
-      // Early exit if we have enough
-      if (rows.length >= TOP_N * 3) break;
     }
-
-    if (rows.length >= TOP_N * 2) break;
   }
 
   rows.sort((a, b) => b.delayMin - a.delayMin);

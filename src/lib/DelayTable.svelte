@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { fetchTopDelays } from "../utils/entur.js";
 
-  const REFRESH_MS = 300000; // 5 minutter
+  const REFRESH_MS = 60000; // 1 minutt
 
   let delays = $state([]);
   let query = $state("");

@@ -29,8 +29,12 @@ Bygget havner i `dist/`-mappen.
 ## Data
 
 - Henter sanntidsdata fra Entur JourneyPlanner v3
-- Bounding box: Sør-Rogaland (ekskl. Haugalandet)
+- **Prioriterte soner** (viktigst først):
+  1. Nord-Jæren (200 stopp) – Stavanger, Sandnes, Sola, Randaberg
+  2. Jæren (100 stopp) – Time, Klepp, Hå, Gjesdal
+  3. Ryfylke (60 stopp) – Strand, Hjelmeland, Forsand
+  4. Dalane (40 stopp) – Eigersund, Sokndal, Lund, Bjerkreim
+- Totalt ~400 stoppesteder, 16 API-kall per refresh
+- Auto-refresh hvert minutt
 - Caching: Stoppesteder 10 min, forsinkelser 30 sek
-- Auto-refresh hvert 5. minutt (unngår rate-limiting)
-- Adaptiv henting: Starter med 50 stoppesteder, utvider til 200 ved behov
 - Deduplicering av avganger på tvers av stoppesteder
