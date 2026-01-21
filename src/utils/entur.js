@@ -3,28 +3,26 @@ const ENTUR_ENDPOINT = 'https://api.entur.io/journey-planner/v3/graphql';
 const ENTUR_CLIENT_NAME = 'aftenbladet-forsinkelser';
 const TOP_N = 25;
 
-// Prioriterte soner i Sør-Rogaland (viktigst først)
-// Henter flere stoppesteder fra viktigere områder
-const PRIORITY_ZONES = [
+const ZONES = [
   {
     name: 'Nord-Jæren',
     bbox: { minLat: 58.85, maxLat: 59.05, minLon: 5.6, maxLon: 6.1 },
-    maxStops: 200  // Stavanger, Sandnes, Sola, Randaberg
+    maxStops: 200 // Stavanger, Sandnes, Sola, Randaberg
   },
   {
     name: 'Jæren',
     bbox: { minLat: 58.6, maxLat: 58.85, minLon: 5.5, maxLon: 6.0 },
-    maxStops: 100  // Time, Klepp, Hå, Gjesdal
+    maxStops: 100 // Time, Klepp, Hå, Gjesdal
   },
   {
     name: 'Ryfylke',
     bbox: { minLat: 59.0, maxLat: 59.5, minLon: 5.8, maxLon: 7.2 },
-    maxStops: 60   // Strand, Hjelmeland, Forsand
+    maxStops: 60 // Strand, Hjelmeland, Forsand
   },
   {
     name: 'Dalane',
     bbox: { minLat: 58.4, maxLat: 58.6, minLon: 5.8, maxLon: 6.8 },
-    maxStops: 40   // Eigersund, Sokndal, Lund, Bjerkreim
+    maxStops: 40 // Eigersund, Sokndal, Lund, Bjerkreim
   }
 ];
 
@@ -71,7 +69,7 @@ const STOP_PLACE_DEPARTURES_QUERY = `
 `;
 
 // Cache
-let stopPlaceIdsCache = { ids: [], fetchedAt: 0 };
+let stopPlaceIdsCache = { ids: [], fetchedAt: 0, zone: '' };
 let delaysCache = { data: [], fetchedAt: 0, mode: '' };
 const STOP_PLACE_CACHE_TTL = 10 * 60 * 1000; // 10 min
 const DELAYS_CACHE_TTL = 30 * 1000; // 30 sec
@@ -105,32 +103,27 @@ async function enturGraphql(query, variables) {
   return json.data;
 }
 
-// Henter stoppesteder fra alle prioriterte soner
-async function getStopPlaceIdsByZone() {
+async function getStopPlaceIdsByZone(zoneName) {
   const now = Date.now();
-  if (stopPlaceIdsCache.ids.length > 0 && now - stopPlaceIdsCache.fetchedAt < STOP_PLACE_CACHE_TTL) {
+  if (
+    stopPlaceIdsCache.ids.length > 0 &&
+    stopPlaceIdsCache.zone === zoneName &&
+    now - stopPlaceIdsCache.fetchedAt < STOP_PLACE_CACHE_TTL
+  ) {
     return stopPlaceIdsCache.ids;
   }
 
-  const allIds = [];
-  
-  for (const zone of PRIORITY_ZONES) {
-    const data = await enturGraphql(STOP_PLACES_QUERY, zone.bbox);
-    const zoneIds = (data?.stopPlacesByBbox ?? [])
-      .map(sp => sp.id)
-      .slice(0, zone.maxStops);
-    allIds.push(...zoneIds);
-  }
-  
-  // Fjern eventuelle duplikater (stoppesteder på grensen mellom soner)
-  const uniqueIds = [...new Set(allIds)];
-  
-  stopPlaceIdsCache = { ids: uniqueIds, fetchedAt: now };
-  return uniqueIds;
+  const zone = ZONES.find((candidate) => candidate.name === zoneName) ?? ZONES[0];
+  const data = await enturGraphql(STOP_PLACES_QUERY, zone.bbox);
+  const ids = (data?.stopPlacesByBbox ?? []).map((sp) => sp.id).slice(0, zone.maxStops);
+
+  stopPlaceIdsCache = { ids, fetchedAt: now, zone: zone.name };
+  return ids;
 }
 
-export async function fetchTopDelays(transportMode = 'bus') {
+export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const mode = transportMode.toLowerCase();
+  const zone = options?.zone ?? ZONES[0].name;
   
   // Return cached data if fresh
   const now = Date.now();
@@ -145,7 +138,7 @@ export async function fetchTopDelays(transportMode = 'bus') {
     };
   }
 
-  const stopPlaceIds = await getStopPlaceIdsByZone();
+  const stopPlaceIds = await getStopPlaceIdsByZone(zone);
 
   // Fetch in batches (single GraphQL request per batch)
   const BATCH_SIZE = 25;

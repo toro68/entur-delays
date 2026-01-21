@@ -4,6 +4,8 @@
 
   const REFRESH_MS = 60000; // 1 minutt
 
+  const ZONES = ["Nord-Jæren", "Jæren", "Ryfylke", "Dalane"];
+
   let delays = $state([]);
   let query = $state("");
   let meta = $state({ generatedAt: null, transportMode: "", topN: 0 });
@@ -11,6 +13,7 @@
   let refreshing = $state(false);
   let error = $state(null);
   let intervalId = null;
+  let activeZone = $state(ZONES[0]);
 
   function normalizeQuery(value) {
     return String(value ?? "")
@@ -51,7 +54,7 @@
     const isInitial = loading;
     if (!isInitial) refreshing = true;
     try {
-      const result = await fetchTopDelays("bus");
+      const result = await fetchTopDelays("bus", { zone: activeZone });
 
       error = null;
       delays = result.data ?? [];
@@ -77,6 +80,14 @@
 
   const normalizedQuery = $derived(normalizeQuery(query));
   const filteredDelays = $derived(delays.filter((row) => rowMatchesQuery(row, normalizedQuery)));
+
+  function setZone(zone) {
+    if (zone === activeZone) return;
+    activeZone = zone;
+    query = "";
+    loading = true;
+    fetchDelays();
+  }
 
   onMount(() => {
     fetchDelays();
@@ -105,6 +116,19 @@
         <span class="refreshing">Oppdaterer…</span>
       {/if}
     </div>
+
+    <nav class="zone-tabs" aria-label="Områder">
+      {#each ZONES as zone}
+        <button
+          type="button"
+          class="zone-tab"
+          class:is-active={zone === activeZone}
+          onclick={() => setZone(zone)}
+        >
+          {zone}
+        </button>
+      {/each}
+    </nav>
 
     <div class="controls">
       <label class="search">
@@ -229,6 +253,45 @@
     justify-content: space-between;
     gap: 16px;
     border-bottom: 1px solid $panel-soft;
+  }
+
+  .zone-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 20px;
+    border-bottom: 1px solid $panel-soft;
+    background: rgba(15, 23, 42, 0.25);
+  }
+
+  .zone-tab {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(15, 23, 42, 0.55);
+    color: #cbd5e1;
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+    &:hover {
+      border-color: rgba(96, 165, 250, 0.55);
+      background: rgba(96, 165, 250, 0.12);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
+      border-color: rgba(96, 165, 250, 0.55);
+    }
+
+    &.is-active {
+      background: rgba(96, 165, 250, 0.25);
+      border-color: rgba(96, 165, 250, 0.75);
+      color: #e2e8f0;
+    }
   }
 
   .search {
