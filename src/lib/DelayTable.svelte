@@ -2,12 +2,13 @@
   import { onMount, onDestroy } from "svelte";
   import { fetchTopDelays } from "../utils/entur.js";
 
-  const REFRESH_MS = 30000;
+  const REFRESH_MS = 300000; // 5 minutter
 
   let delays = $state([]);
   let query = $state("");
   let meta = $state({ generatedAt: null, transportMode: "", topN: 0 });
   let loading = $state(true);
+  let refreshing = $state(false);
   let error = $state(null);
   let intervalId = null;
 
@@ -47,6 +48,8 @@
   }
 
   async function fetchDelays() {
+    const isInitial = loading;
+    if (!isInitial) refreshing = true;
     try {
       const result = await fetchTopDelays("bus");
 
@@ -61,7 +64,15 @@
       error = e.message ?? "Nettverksfeil";
     } finally {
       loading = false;
+      refreshing = false;
     }
+  }
+
+  function getRowKey(row) {
+    if (row?.serviceJourneyId && row?.aimedDepartureTime) {
+      return `${row.serviceJourneyId}|${row.aimedDepartureTime}`;
+    }
+    return `${row?.stopPlaceId ?? ""}|${row?.quayId ?? ""}|${row?.expectedDepartureTime ?? ""}|${row?.linePublicCode ?? row?.lineName ?? ""}|${row?.destination ?? ""}`;
   }
 
   const normalizedQuery = $derived(normalizeQuery(query));
@@ -90,6 +101,9 @@
   {:else}
     <div class="meta">
       Oppdatert {formatDate(meta.generatedAt)} · {meta.transportMode} · Topp {meta.topN} forsinkelser
+      {#if refreshing}
+        <span class="refreshing">Oppdaterer…</span>
+      {/if}
     </div>
 
     <div class="controls">
@@ -119,7 +133,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each filteredDelays as row (row.serviceJourneyId + row.aimedDepartureTime)}
+          {#each filteredDelays as row (getRowKey(row))}
             <tr>
               <td class="col-delay {getDelayClass(row.delayMin)}">
                 {row.delayMin} min
@@ -198,6 +212,14 @@
     font-size: 0.85rem;
     color: #64748b;
     border-bottom: 1px solid $panel-soft;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  .refreshing {
+    color: $accent;
+    font-weight: 600;
   }
 
   .controls {

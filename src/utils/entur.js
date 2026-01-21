@@ -2,6 +2,7 @@
 const ENTUR_ENDPOINT = 'https://api.entur.io/journey-planner/v3/graphql';
 const ENTUR_CLIENT_NAME = 'aftenbladet-forsinkelser';
 const TOP_N = 25;
+const MAX_STOP_PLACES = 200;
 
 // Bounding box for Sør-Rogaland (ekskluderer Haugalandet)
 const ROGALAND_BBOX = {
@@ -25,8 +26,8 @@ const STOP_PLACES_QUERY = `
 `;
 
 const STOP_PLACE_DEPARTURES_QUERY = `
-  query StopPlaceDepartures($id: String!, $numberOfDepartures: Int!) {
-    stopPlace(id: $id) {
+  query StopPlaceDepartures($ids: [String!]!, $numberOfDepartures: Int!) {
+    stopPlaces(ids: $ids) {
       id
       name
       quays {
@@ -39,12 +40,12 @@ const STOP_PLACE_DEPARTURES_QUERY = `
           destinationDisplay { frontText }
           serviceJourney {
             id
-            line { 
-              id 
-              publicCode 
-              name 
+            line {
+              id
+              publicCode
+              name
               transportMode
-              authority { id name } 
+              authority { id name }
             }
           }
         }
@@ -118,58 +119,73 @@ export async function fetchTopDelays(transportMode = 'bus') {
   }
 
   const stopPlaceIds = await getStopPlaceIds();
+
+  // Adaptiv limit: start lavt og øk til vi har nok kandidater.
+  const limitSteps = [50, 100, 150, MAX_STOP_PLACES];
   
-  // Limit to first 200 stopPlaces for browser performance
-  const limitedIds = stopPlaceIds.slice(0, 200);
-  
-  // Fetch in batches
-  const BATCH_SIZE = 20;
+  // Fetch in batches (single GraphQL request per batch)
+  const BATCH_SIZE = 25;
   const rows = [];
+  const seen = new Set();
 
-  for (let i = 0; i < limitedIds.length; i += BATCH_SIZE) {
-    const batch = limitedIds.slice(i, i + BATCH_SIZE);
-    const results = await Promise.all(
-      batch.map(id =>
-        enturGraphql(STOP_PLACE_DEPARTURES_QUERY, {
-          id,
-          numberOfDepartures: 3
-        }).catch(() => null)
-      )
-    );
+  for (const limit of limitSteps) {
+    const limitedIds = stopPlaceIds.slice(0, Math.min(limit, MAX_STOP_PLACES));
 
-    for (const data of results) {
-      if (!data?.stopPlace) continue;
-      const sp = data.stopPlace;
-      for (const quay of sp.quays ?? []) {
-        for (const call of quay.estimatedCalls ?? []) {
-          const lineMode = call?.serviceJourney?.line?.transportMode?.toLowerCase();
-          if (mode && lineMode && lineMode !== mode) continue;
-          
-          const delayMin = minutesBetween(call.aimedDepartureTime, call.expectedDepartureTime);
-          if (delayMin == null || delayMin <= 0) continue;
-          
-          rows.push({
-            delayMin,
-            aimedDepartureTime: call.aimedDepartureTime,
-            expectedDepartureTime: call.expectedDepartureTime,
-            realtime: call.realtime ?? false,
-            destination: call?.destinationDisplay?.frontText ?? null,
-            linePublicCode: call?.serviceJourney?.line?.publicCode ?? null,
-            lineName: call?.serviceJourney?.line?.name ?? null,
-            transportMode: lineMode ?? null,
-            authority: call?.serviceJourney?.line?.authority?.name ?? null,
-            quayName: quay?.name ?? null,
-            stopPlaceName: sp?.name ?? null,
-            quayId: quay?.id ?? null,
-            stopPlaceId: sp?.id ?? null,
-            serviceJourneyId: call?.serviceJourney?.id ?? null
-          });
+    for (let i = 0; i < limitedIds.length; i += BATCH_SIZE) {
+      const batch = limitedIds.slice(i, i + BATCH_SIZE);
+
+      const data = await enturGraphql(STOP_PLACE_DEPARTURES_QUERY, {
+        ids: batch,
+        numberOfDepartures: 3,
+      }).catch(() => null);
+      const stopPlaces = data?.stopPlaces ?? [];
+
+      for (const sp of stopPlaces) {
+        if (!sp) continue;
+        for (const quay of sp.quays ?? []) {
+          for (const call of quay.estimatedCalls ?? []) {
+            const serviceJourneyId = call?.serviceJourney?.id ?? null;
+            const aimedDepartureTime = call?.aimedDepartureTime ?? null;
+            const expectedDepartureTime = call?.expectedDepartureTime ?? null;
+
+            const lineMode = call?.serviceJourney?.line?.transportMode?.toLowerCase();
+            if (mode && lineMode && lineMode !== mode) continue;
+
+            const delayMin = minutesBetween(aimedDepartureTime, expectedDepartureTime);
+            if (delayMin == null || delayMin <= 0) continue;
+
+            // Dedup: same serviceJourney + aimedDepartureTime can appear across stop places.
+            if (serviceJourneyId && aimedDepartureTime) {
+              const key = `${serviceJourneyId}|${aimedDepartureTime}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+            }
+
+            rows.push({
+              delayMin,
+              aimedDepartureTime,
+              expectedDepartureTime,
+              realtime: call.realtime ?? false,
+              destination: call?.destinationDisplay?.frontText ?? null,
+              linePublicCode: call?.serviceJourney?.line?.publicCode ?? null,
+              lineName: call?.serviceJourney?.line?.name ?? null,
+              transportMode: lineMode ?? null,
+              authority: call?.serviceJourney?.line?.authority?.name ?? null,
+              quayName: quay?.name ?? null,
+              stopPlaceName: sp?.name ?? null,
+              quayId: quay?.id ?? null,
+              stopPlaceId: sp?.id ?? null,
+              serviceJourneyId,
+            });
+          }
         }
       }
+
+      // Early exit if we have enough
+      if (rows.length >= TOP_N * 3) break;
     }
-    
-    // Early exit if we have enough
-    if (rows.length >= TOP_N * 3) break;
+
+    if (rows.length >= TOP_N * 2) break;
   }
 
   rows.sort((a, b) => b.delayMin - a.delayMin);

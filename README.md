@@ -31,4 +31,6 @@ Bygget havner i `dist/`-mappen.
 - Henter sanntidsdata fra Entur JourneyPlanner v3
 - Bounding box: Sør-Rogaland (ekskl. Haugalandet)
 - Caching: Stoppesteder 10 min, forsinkelser 30 sek
-- Auto-refresh hvert 30. sekund
+- Auto-refresh hvert 5. minutt (unngår rate-limiting)
+- Adaptiv henting: Starter med 50 stoppesteder, utvider til 200 ved behov
+- Deduplicering av avganger på tvers av stoppesteder
