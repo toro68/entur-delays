@@ -5,10 +5,23 @@
   const REFRESH_MS = 30000;
 
   let delays = $state([]);
+  let query = $state("");
   let meta = $state({ generatedAt: null, transportMode: "", topN: 0 });
   let loading = $state(true);
   let error = $state(null);
   let intervalId = null;
+
+  function normalizeQuery(value) {
+    return String(value ?? "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function rowMatchesQuery(row, normalized) {
+    if (!normalized) return true;
+    const haystack = `${row?.linePublicCode ?? ""} ${row?.lineName ?? ""} ${row?.destination ?? ""} ${row?.stopPlaceName ?? ""} ${row?.quayName ?? ""}`.toLowerCase();
+    return haystack.includes(normalized);
+  }
 
   function formatTime(iso) {
     if (!iso) return "";
@@ -51,6 +64,9 @@
     }
   }
 
+  const normalizedQuery = $derived(normalizeQuery(query));
+  const filteredDelays = $derived(delays.filter((row) => rowMatchesQuery(row, normalizedQuery)));
+
   onMount(() => {
     fetchDelays();
     intervalId = setInterval(fetchDelays, REFRESH_MS);
@@ -76,6 +92,20 @@
       Oppdatert {formatDate(meta.generatedAt)} · {meta.transportMode} · Topp {meta.topN} forsinkelser
     </div>
 
+    <div class="controls">
+      <label class="search">
+        <span class="label">Søk linje</span>
+        <input
+          type="search"
+          placeholder="f.eks. 1, 7, X60..."
+          bind:value={query}
+        />
+      </label>
+      {#if normalizedQuery}
+        <div class="result-count">Viser {filteredDelays.length} av {delays.length}</div>
+      {/if}
+    </div>
+
     <div class="table-container">
       <table>
         <thead>
@@ -84,13 +114,12 @@
             <th class="col-line">Linje</th>
             <th class="col-dest">Destinasjon</th>
             <th class="col-stop">Stopp</th>
-            <th class="col-operator hide-mobile">Operatør</th>
             <th class="col-time">Planlagt</th>
             <th class="col-time">Forventet</th>
           </tr>
         </thead>
         <tbody>
-          {#each delays as row (row.serviceJourneyId + row.aimedDepartureTime)}
+          {#each filteredDelays as row (row.serviceJourneyId + row.aimedDepartureTime)}
             <tr>
               <td class="col-delay {getDelayClass(row.delayMin)}">
                 {row.delayMin} min
@@ -100,7 +129,6 @@
               </td>
               <td class="col-dest">{row.destination ?? "–"}</td>
               <td class="col-stop">{row.stopPlaceName ?? row.quayName ?? "–"}</td>
-              <td class="col-operator hide-mobile">{row.authority ?? "–"}</td>
               <td class="col-time">{formatTime(row.aimedDepartureTime)}</td>
               <td class="col-time">
                 {#if row.realtime}
@@ -111,7 +139,7 @@
             </tr>
           {:else}
             <tr>
-              <td colspan="7" class="no-data">Ingen forsinkelser akkurat nå 🎉</td>
+              <td colspan="6" class="no-data">Ingen treff</td>
             </tr>
           {/each}
         </tbody>
@@ -170,6 +198,48 @@
     font-size: 0.85rem;
     color: #64748b;
     border-bottom: 1px solid $panel-soft;
+  }
+
+  .controls {
+    padding: 12px 20px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid $panel-soft;
+  }
+
+  .search {
+    display: grid;
+    gap: 6px;
+  }
+
+  .label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  input[type="search"] {
+    width: min(360px, 70vw);
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 23, 42, 0.55);
+    color: #e2e8f0;
+    outline: none;
+
+    &:focus {
+      border-color: rgba(96, 165, 250, 0.55);
+      box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
+    }
+  }
+
+  .result-count {
+    font-size: 0.85rem;
+    color: #64748b;
   }
 
   .table-container {
@@ -259,10 +329,6 @@
   }
 
   @media (max-width: 768px) {
-    .hide-mobile {
-      display: none;
-    }
-
     th,
     td {
       padding: 10px 12px;
@@ -272,6 +338,15 @@
     .col-dest,
     .col-stop {
       max-width: 120px;
+    }
+
+    .controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    input[type="search"] {
+      width: 100%;
     }
   }
 </style>
