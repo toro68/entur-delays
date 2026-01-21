@@ -1,10 +1,11 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { fetchTopDelays } from "../utils/entur.js";
+  import { REGIONS, getRegionByLabel, isRowInRegion } from "../config/regions.js";
 
   const REFRESH_MS = 60000; // 1 minutt
 
-  const ZONES = ["Nord-Jæren", "Jæren", "Ryfylke", "Dalane"];
+  const ZONES = REGIONS.map((r) => r.label);
 
   let delays = $state([]);
   let query = $state("");
@@ -79,7 +80,12 @@
   }
 
   const normalizedQuery = $derived(normalizeQuery(query));
-  const filteredDelays = $derived(delays.filter((row) => rowMatchesQuery(row, normalizedQuery)));
+  const activeRegion = $derived(getRegionByLabel(activeZone));
+  const filteredDelays = $derived(
+    delays
+      .filter((row) => isRowInRegion(row, activeRegion))
+      .filter((row) => rowMatchesQuery(row, normalizedQuery))
+  );
 
   function setZone(zone) {
     if (zone === activeZone) return;
