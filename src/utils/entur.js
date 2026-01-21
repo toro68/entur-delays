@@ -21,8 +21,8 @@ const ZONES = [
   },
   {
     name: 'Dalane',
-    bbox: { minLat: 58.4, maxLat: 58.6, minLon: 5.8, maxLon: 6.8 },
-    maxStops: 40 // Eigersund, Sokndal, Lund, Bjerkreim
+    bbox: { minLat: 58.25, maxLat: 58.7, minLon: 5.3, maxLon: 7.0 },
+    maxStops: 80 // Eigersund, Sokndal, Lund, Bjerkreim
   }
 ];
 
@@ -147,7 +147,6 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const BATCH_SIZE = 25;
   const rows = [];
   const seen = new Set();
-  const rowKeys = new Set();
 
   // Hent alle stoppesteder (allerede prioritert etter sone)
   for (let i = 0; i < stopPlaceIds.length; i += BATCH_SIZE) {
@@ -201,16 +200,20 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
     }
   }
 
-  // Dedup by (line + destination + stop + expected time + delay)
-  // Some journeys/calls come through without stable serviceJourneyId.
-  const uniqueRows = [];
+  const dedupedMap = new Map();
   for (const row of rows) {
-    const key = `${row.linePublicCode ?? row.lineName ?? ''}|${row.destination ?? ''}|${row.stopPlaceId ?? ''}|${row.quayId ?? ''}|${row.expectedDepartureTime ?? ''}|${row.delayMin ?? ''}`;
-    if (rowKeys.has(key)) continue;
-    rowKeys.add(key);
-    uniqueRows.push(row);
+    const lineKey = row.linePublicCode ?? row.lineName ?? null;
+    const key = lineKey
+      ? `${lineKey}|${row.destination ?? ""}`
+      : `__sj:${row.serviceJourneyId ?? ""}|${row.aimedDepartureTime ?? ""}|${row.stopPlaceId ?? ""}`;
+
+    const existing = dedupedMap.get(key);
+    if (!existing || row.delayMin > existing.delayMin) {
+      dedupedMap.set(key, row);
+    }
   }
 
+  const uniqueRows = Array.from(dedupedMap.values());
   uniqueRows.sort((a, b) => b.delayMin - a.delayMin);
   const result = uniqueRows.slice(0, TOP_N);
   

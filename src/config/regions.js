@@ -2,25 +2,25 @@ export const REGIONS = [
   {
     id: "nord-jaeren",
     label: "Nord-Jæren",
-    description: "Stavanger, Sandnes, Sola, Randaberg",
+    description: "Stavanger, Sola, Randaberg",
     lines: null,
   },
   {
     id: "jaeren",
     label: "Jæren",
-    description: "Time, Klepp, Hå, Gjesdal",
+    description: "Sandnes, Time, Klepp, Hå, Gjesdal",
     lines: null,
   },
   {
     id: "ryfylke",
     label: "Ryfylke",
-    description: "Strand, Hjelmeland, Forsand",
+    description: "Strand, Hjelmeland, Forsand, Suldal, Sauda",
     lines: null,
   },
   {
     id: "dalane",
     label: "Dalane",
-    description: "Eigersund, Sokndal, Lund, Bjerkreim",
+    description: "Eigersund, Bjerkreim, Sokndal, Lund",
     lines: null,
   },
 ];
