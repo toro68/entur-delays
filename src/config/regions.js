@@ -21,7 +21,7 @@ export const REGIONS = [
     id: "dalane",
     label: "Dalane",
     description: "Eigersund, Bjerkreim, Sokndal, Lund",
-    lines: null,
+    lines: ["8"],
   },
 ];
 
@@ -36,4 +36,3 @@ export function isRowInRegion(row, region) {
   if (!code) return false;
   return lines.includes(code);
 }
-

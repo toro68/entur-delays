@@ -11,7 +11,7 @@
     "Nord-Jæren": 300,
     "Jæren": 100,
     "Ryfylke": 60,
-    "Dalane": 40,
+    "Dalane": 80,
   };
 
   const ZONES = REGIONS.map((r) => r.label);
