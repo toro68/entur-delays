@@ -9,7 +9,8 @@ export default {
   preprocess: vitePreprocess({
     scss: {
       api: "modern",
-      prependData: `@use "${resolve(__dirname, "src/_entry.scss")}" as *;`,
+      loadPaths: [resolve(__dirname, "src")],
+      prependData: `@use "_entry" as *;`,
     },
   }),
 };

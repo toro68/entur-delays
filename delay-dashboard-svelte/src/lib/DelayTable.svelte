@@ -126,6 +126,16 @@
 </div>
 
 <style lang="scss">
+  $panel: #0b1221;
+  $panel-soft: #111a2d;
+  $card-radius: 14px;
+  $shadow-soft: 0 12px 40px rgba(0, 0, 0, 0.18);
+  $accent: #60a5fa;
+  $delay-high: #ef4444;
+  $delay-medium: #f97316;
+  $delay-low: #eab308;
+  $realtime-green: #22c55e;
+
   .delay-table-wrapper {
     background: $panel;
     border-radius: $card-radius;
