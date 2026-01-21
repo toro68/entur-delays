@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from "svelte";
+  import { fetchTopDelays } from "../utils/entur.js";
 
   const REFRESH_MS = 30000;
 
@@ -34,20 +35,14 @@
 
   async function fetchDelays() {
     try {
-      const res = await fetch("/api/top-delays");
-      const json = await res.json();
-
-      if (!res.ok) {
-        error = json.error ?? "Ukjent feil";
-        return;
-      }
+      const result = await fetchTopDelays("bus");
 
       error = null;
-      delays = json.data ?? [];
+      delays = result.data ?? [];
       meta = {
-        generatedAt: json.generatedAt,
-        transportMode: json.transportMode,
-        topN: json.topN,
+        generatedAt: result.generatedAt,
+        transportMode: result.transportMode,
+        topN: result.topN,
       };
     } catch (e) {
       error = e.message ?? "Nettverksfeil";

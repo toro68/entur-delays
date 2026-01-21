@@ -15,14 +15,7 @@ const computeBase = (isDev) => {
 
 export default defineConfig(({ command }) => ({
   server: {
-    port: 5200,
-    proxy: {
-      // Proxy API-kall til backend-serveren
-      '/api': {
-        target: 'http://localhost:5173',
-        changeOrigin: true
-      }
-    }
+    port: 5200
   },
   build: {
     assetsDir: "build",
