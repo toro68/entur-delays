@@ -70,7 +70,7 @@ const STOP_PLACE_DEPARTURES_QUERY = `
 
 // Cache
 let stopPlaceIdsCache = { ids: [], fetchedAt: 0, zone: '' };
-let delaysCache = { data: [], fetchedAt: 0, mode: '' };
+let delaysCache = { data: [], fetchedAt: 0, mode: '', zone: '' };
 const STOP_PLACE_CACHE_TTL = 10 * 60 * 1000; // 10 min
 const DELAYS_CACHE_TTL = 30 * 1000; // 30 sec
 
@@ -127,9 +127,12 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   
   // Return cached data if fresh
   const now = Date.now();
-  if (delaysCache.data.length > 0 && 
-      delaysCache.mode === mode && 
-      now - delaysCache.fetchedAt < DELAYS_CACHE_TTL) {
+  if (
+    delaysCache.data.length > 0 &&
+    delaysCache.mode === mode &&
+    delaysCache.zone === zone &&
+    now - delaysCache.fetchedAt < DELAYS_CACHE_TTL
+  ) {
     return {
       generatedAt: new Date(delaysCache.fetchedAt).toISOString(),
       transportMode: mode,
@@ -201,7 +204,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const result = rows.slice(0, TOP_N);
   
   // Cache
-  delaysCache = { data: result, fetchedAt: Date.now(), mode };
+  delaysCache = { data: result, fetchedAt: Date.now(), mode, zone };
   
   return {
     generatedAt: new Date().toISOString(),
