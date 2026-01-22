@@ -20,8 +20,8 @@
   const VIEW_MODES = [
     { value: "delays", label: "Forsinkelser" },
     { value: "cancellations", label: "Innstillinger" },
-    { value: "all-water", label: "Alle avganger (båt)" },
-    { value: "all-rail", label: "Alle avganger (tog)" },
+    { value: "all-water", label: "⛴️ Alle avganger (båt)" },
+    { value: "all-rail", label: "🚆 Alle avganger (tog)" },
     { value: "map", label: "Kart" },
   ];
 
