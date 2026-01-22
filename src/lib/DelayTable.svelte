@@ -7,12 +7,21 @@
   const INITIAL_TOP_N = 25;
   const TOP_N_STEP = 25;
   const INITIAL_PAGE = 1;
-  const DEFAULT_MAX_STOPS_BY_ZONE = {
-    "Nord-Jæren": 300,
-    "Jæren": 100,
-    "Ryfylke": 60,
-    "Dalane": 80,
-  };
+  const DEFAULT_MAX_STOPS_BY_ZONE = Object.fromEntries(
+    REGIONS.map((region) => [region.label, region.maxStops ?? Number.POSITIVE_INFINITY])
+  );
+
+  const TRANSPORT_MODES = [
+    { value: "bus", label: "Buss" },
+    { value: "water", label: "Båt" },
+    { value: "rail", label: "Tog" },
+    { value: "tram", label: "Trikk" },
+    { value: "metro", label: "T-bane" },
+  ];
+  const VIEW_MODES = [
+    { value: "delays", label: "Forsinkelser" },
+    { value: "cancellations", label: "Innstillingskartet" },
+  ];
 
   const ZONES = REGIONS.map((r) => r.label);
 
@@ -27,6 +36,8 @@
   let topN = $state(INITIAL_TOP_N);
   let includeAllStops = $state(false);
   let page = $state(INITIAL_PAGE);
+  let transportMode = $state("bus");
+  let viewMode = $state("delays");
 
   function normalizeQuery(value) {
     return String(value ?? "")
@@ -69,12 +80,28 @@
     return "delay-low";
   }
 
+  function formatStatus(row) {
+    if (row?.cancellation) return "Kansellert";
+    const state = row?.realtimeState ?? null;
+    if (!state) return "Planlagt";
+    if (state === "updated" || state === "modified") return "Oppdatert";
+    if (state === "canceled") return "Kansellert";
+    return state;
+  }
+
+  function formatDestination(row) {
+    const base = row?.destination ?? "–";
+    const via = Array.isArray(row?.via) ? row.via.filter(Boolean) : [];
+    if (!via.length) return base;
+    return `${base} (via ${via.join(", ")})`;
+  }
+
   async function fetchDelays() {
     const isInitial = loading;
     if (!isInitial) refreshing = true;
     try {
       const maxStops = includeAllStops ? Number.POSITIVE_INFINITY : DEFAULT_MAX_STOPS_BY_ZONE[activeZone];
-      const result = await fetchTopDelays("bus", { zone: activeZone, topN, maxStops });
+      const result = await fetchTopDelays(transportMode, { zone: activeZone, topN, maxStops });
 
       error = null;
       delays = result.data ?? [];
@@ -100,8 +127,13 @@
 
   const normalizedQuery = $derived(normalizeQuery(query));
   const activeRegion = $derived(getRegionByLabel(activeZone));
+  const filteredByView = $derived(
+    viewMode === "cancellations"
+      ? delays.filter((row) => row?.cancellation || row?.realtimeState === "canceled")
+      : delays
+  );
   const filteredDelays = $derived(
-    delays
+    filteredByView
       .filter((row) => isRowInRegion(row, activeRegion))
       .filter((row) => rowMatchesQuery(row, normalizedQuery))
   );
@@ -114,6 +146,28 @@
   function setZone(zone) {
     if (zone === activeZone) return;
     activeZone = zone;
+    query = "";
+    topN = INITIAL_TOP_N;
+    includeAllStops = false;
+    page = INITIAL_PAGE;
+    loading = true;
+    fetchDelays();
+  }
+
+  function setTransportMode(mode) {
+    if (mode === transportMode) return;
+    transportMode = mode;
+    query = "";
+    topN = INITIAL_TOP_N;
+    includeAllStops = false;
+    page = INITIAL_PAGE;
+    loading = true;
+    fetchDelays();
+  }
+
+  function setViewMode(mode) {
+    if (mode === viewMode) return;
+    viewMode = mode;
     query = "";
     topN = INITIAL_TOP_N;
     includeAllStops = false;
@@ -168,11 +222,29 @@
     </div>
   {:else}
     <div class="meta">
-      Oppdatert {formatDate(meta.generatedAt)} · {meta.transportMode} · Topp {meta.topN} forsinkelser
+      Oppdatert {formatDate(meta.generatedAt)} · {meta.transportMode} · Topp {meta.topN}
+      {#if viewMode === "cancellations"}
+        innstillinger
+      {:else}
+        forsinkelser
+      {/if}
       {#if refreshing}
         <span class="refreshing">Oppdaterer…</span>
       {/if}
     </div>
+
+    <nav class="zone-tabs" aria-label="Visning">
+      {#each VIEW_MODES as mode}
+        <button
+          type="button"
+          class="zone-tab"
+          class:is-active={mode.value === viewMode}
+          onclick={() => setViewMode(mode.value)}
+        >
+          {mode.label}
+        </button>
+      {/each}
+    </nav>
 
     <nav class="zone-tabs" aria-label="Områder">
       {#each ZONES as zone}
@@ -195,6 +267,14 @@
           placeholder="f.eks. 1, 7, X60..."
           bind:value={query}
         />
+      </label>
+      <label class="select">
+        <span class="label">Transport</span>
+        <select bind:value={transportMode} onchange={(event) => setTransportMode(event.target.value)}>
+          {#each TRANSPORT_MODES as mode}
+            <option value={mode.value}>{mode.label}</option>
+          {/each}
+        </select>
       </label>
       {#if normalizedQuery}
         <div class="result-count">Viser {filteredDelays.length} av {delays.length}</div>
@@ -222,6 +302,7 @@
           <tr>
             <th class="col-delay">Forsinkelse</th>
             <th class="col-journey">Tur</th>
+            <th class="col-status">Status</th>
             <th class="col-line">Linje</th>
             <th class="col-dest">Destinasjon</th>
             <th class="col-stop">Stopp</th>
@@ -238,10 +319,22 @@
               <td class="col-journey" title={row.serviceJourneyId ?? ""}>
                 {formatJourneyId(row.serviceJourneyId)}
               </td>
-              <td class="col-line">
-                <span class="line-badge">{row.linePublicCode ?? row.lineName ?? "–"}</span>
+              <td class="col-status">
+                {#if row.cancellation}
+                  <span class="status-badge status-canceled">Kansellert</span>
+                {:else}
+                  <span class="status-badge">{formatStatus(row)}</span>
+                {/if}
+                {#if row.predictionInaccurate}
+                  <span class="status-warning" title="Usikker sanntid">⚠︎</span>
+                {/if}
               </td>
-              <td class="col-dest">{row.destination ?? "–"}</td>
+              <td class="col-line">
+                <span class="line-badge" title={row.transportSubmode ?? ""}>
+                  {row.linePublicCode ?? row.lineName ?? "–"}
+                </span>
+              </td>
+              <td class="col-dest">{formatDestination(row)}</td>
               <td class="col-stop">{row.stopPlaceName ?? row.quayName ?? "–"}</td>
               <td class="col-time">{formatTime(row.aimedDepartureTime)}</td>
               <td class="col-time">
@@ -253,7 +346,7 @@
             </tr>
           {:else}
             <tr>
-              <td colspan="7" class="no-data">Ingen treff</td>
+              <td colspan="8" class="no-data">Ingen treff</td>
             </tr>
           {/each}
         </tbody>
@@ -418,6 +511,11 @@
     gap: 6px;
   }
 
+  .select {
+    display: grid;
+    gap: 6px;
+  }
+
   .label {
     font-size: 0.75rem;
     font-weight: 600;
@@ -428,6 +526,21 @@
 
   input[type="search"] {
     width: min(360px, 70vw);
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 23, 42, 0.55);
+    color: #e2e8f0;
+    outline: none;
+
+    &:focus {
+      border-color: rgba(96, 165, 250, 0.55);
+      box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
+    }
+  }
+
+  select {
+    min-width: 160px;
     padding: 10px 12px;
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -530,6 +643,32 @@
   .realtime-dot {
     color: $realtime-green;
     margin-right: 4px;
+  }
+
+  .col-status {
+    font-weight: 600;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  .status-canceled {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fecaca;
+  }
+
+  .status-warning {
+    margin-left: 6px;
+    color: #f59e0b;
   }
 
   .no-data {

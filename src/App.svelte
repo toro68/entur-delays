@@ -5,8 +5,8 @@
 <section class="entur-delays-section">
   <div class="container">
     <header class="header">
-      <h1>🚌 Forsinkede busser</h1>
-      <p class="subtitle">Sanntid fra Kolumbus-området i Rogaland</p>
+      <h1>🚦 Kollektivforsinkelser</h1>
+      <p class="subtitle">Sanntid fra Entur i Rogaland</p>
     </header>
     <DelayTable />
   </div>

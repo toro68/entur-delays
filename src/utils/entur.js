@@ -1,31 +1,9 @@
 // Entur GraphQL API - direkte kall fra browser
+import { REGIONS, getRegionByLabel } from "../config/regions.js";
 const ENTUR_ENDPOINT = 'https://api.entur.io/journey-planner/v3/graphql';
 const ENTUR_CLIENT_NAME = 'aftenbladet-forsinkelser';
 const TOP_N_DEFAULT = 25;
 
-const ZONES = [
-  {
-    name: 'Nord-Jæren',
-    bbox: { minLat: 58.85, maxLat: 59.05, minLon: 5.6, maxLon: 6.1 },
-    maxStops: 300 // Stavanger, Sandnes, Sola, Randaberg
-  },
-  {
-    name: 'Jæren',
-    bbox: { minLat: 58.6, maxLat: 58.85, minLon: 5.5, maxLon: 6.0 },
-    maxStops: 100 // Time, Klepp, Hå, Gjesdal
-  },
-  {
-    name: 'Ryfylke',
-    bbox: { minLat: 59.0, maxLat: 59.5, minLon: 5.8, maxLon: 7.2 },
-    maxStops: 60 // Strand, Hjelmeland, Forsand
-  },
-  {
-    name: 'Dalane',
-    // Dalane ligger lenger sør/vest; sørg for at Eigersund/Sokndal dekkes.
-    bbox: { minLat: 58.15, maxLat: 58.7, minLon: 5.2, maxLon: 6.9 },
-    maxStops: 80 // Eigersund, Sokndal, Lund, Bjerkreim
-  }
-];
 
 const STOP_PLACES_QUERY = `
   query StopPlacesByBbox($minLat: Float!, $minLon: Float!, $maxLat: Float!, $maxLon: Float!) {
@@ -45,14 +23,27 @@ const STOP_PLACE_DEPARTURES_QUERY = `
     stopPlaces(ids: $ids) {
       id
       name
+      latitude
+      longitude
+      transportMode
       quays {
         id
         name
+        latitude
+        longitude
         estimatedCalls(timeRange: 7200, numberOfDepartures: $numberOfDepartures) {
           aimedDepartureTime
           expectedDepartureTime
+          actualDepartureTime
+          aimedArrivalTime
+          expectedArrivalTime
+          actualArrivalTime
           realtime
-          destinationDisplay { frontText }
+          cancellation
+          realtimeState
+          predictionInaccurate
+          occupancyStatus
+          destinationDisplay { frontText via }
           serviceJourney {
             id
             line {
@@ -60,6 +51,7 @@ const STOP_PLACE_DEPARTURES_QUERY = `
               publicCode
               name
               transportMode
+              transportSubmode
               authority { id name }
             }
           }
@@ -122,7 +114,7 @@ async function getStopPlaceIdsByZone(zoneName, maxStopsOverride) {
       : stopPlaceIdsCache.ids.slice(0, requestedMaxStops);
   }
 
-  const zone = ZONES.find((candidate) => candidate.name === zoneName) ?? ZONES[0];
+  const zone = getRegionByLabel(zoneName) ?? REGIONS[0];
   const data = await enturGraphql(STOP_PLACES_QUERY, zone.bbox);
   const maxStops = Number.isFinite(maxStopsOverride) ? maxStopsOverride : zone.maxStops;
   const ids = (data?.stopPlacesByBbox ?? []).map((sp) => sp.id).slice(0, maxStops);
@@ -133,7 +125,7 @@ async function getStopPlaceIdsByZone(zoneName, maxStopsOverride) {
 
 export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const mode = transportMode.toLowerCase();
-  const zone = options?.zone ?? ZONES[0].name;
+  const zone = options?.zone ?? REGIONS[0].label;
   const topN = options?.topN ?? TOP_N_DEFAULT;
   const maxStopsOverride = options?.maxStops;
   
@@ -177,12 +169,15 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
           const serviceJourneyId = call?.serviceJourney?.id ?? null;
           const aimedDepartureTime = call?.aimedDepartureTime ?? null;
           const expectedDepartureTime = call?.expectedDepartureTime ?? null;
+          const realtimeState = call?.realtimeState ?? null;
+          const isCanceled = call?.cancellation === true || realtimeState === "canceled";
 
           const lineMode = call?.serviceJourney?.line?.transportMode?.toLowerCase();
           if (mode && lineMode && lineMode !== mode) continue;
 
-          const delayMin = minutesBetween(aimedDepartureTime, expectedDepartureTime);
-          if (delayMin == null || delayMin <= 0) continue;
+          let delayMin = minutesBetween(aimedDepartureTime, expectedDepartureTime);
+          if (delayMin == null) delayMin = isCanceled ? 0 : null;
+          if (!isCanceled && (delayMin == null || delayMin <= 0)) continue;
 
           // Dedup: same serviceJourney + aimedDepartureTime can appear across stop places.
           if (serviceJourneyId && aimedDepartureTime) {
@@ -195,14 +190,28 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
             delayMin,
             aimedDepartureTime,
             expectedDepartureTime,
+            actualDepartureTime: call?.actualDepartureTime ?? null,
+            aimedArrivalTime: call?.aimedArrivalTime ?? null,
+            expectedArrivalTime: call?.expectedArrivalTime ?? null,
+            actualArrivalTime: call?.actualArrivalTime ?? null,
             realtime: call.realtime ?? false,
+            cancellation: call?.cancellation ?? false,
+            realtimeState,
+            predictionInaccurate: call?.predictionInaccurate ?? false,
+            occupancyStatus: call?.occupancyStatus ?? null,
             destination: call?.destinationDisplay?.frontText ?? null,
+            via: call?.destinationDisplay?.via ?? [],
             linePublicCode: call?.serviceJourney?.line?.publicCode ?? null,
             lineName: call?.serviceJourney?.line?.name ?? null,
+            transportSubmode: call?.serviceJourney?.line?.transportSubmode ?? null,
             transportMode: lineMode ?? null,
             authority: call?.serviceJourney?.line?.authority?.name ?? null,
             quayName: quay?.name ?? null,
             stopPlaceName: sp?.name ?? null,
+            quayLatitude: quay?.latitude ?? null,
+            quayLongitude: quay?.longitude ?? null,
+            stopPlaceLatitude: sp?.latitude ?? null,
+            stopPlaceLongitude: sp?.longitude ?? null,
             quayId: quay?.id ?? null,
             stopPlaceId: sp?.id ?? null,
             serviceJourneyId,
