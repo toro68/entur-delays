@@ -2,8 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import L from "leaflet";
 
-  export let rows = [];
-  export let bbox = null;
+  let { rows = [], bbox = null } = $props();
 
   let map;
   let layer;
