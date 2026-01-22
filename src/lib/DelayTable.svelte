@@ -158,6 +158,10 @@
       .filter((row) => rowMatchesQuery(row, normalizedQuery))
   );
 
+  const mapRows = $derived(
+    filteredDelays.filter((row) => row?.transportMode === "bus" && (row?.delayMin ?? 0) > 0)
+  );
+
   const pageCount = $derived(Math.max(1, Math.ceil(filteredDelays.length / TOP_N_STEP)));
   const pagedDelays = $derived(
     filteredDelays.slice((page - 1) * TOP_N_STEP, (page - 1) * TOP_N_STEP + TOP_N_STEP)
@@ -200,6 +204,8 @@
       transportMode = "water";
     } else if (mode === "all-rail") {
       transportMode = "rail";
+    } else if (mode === "map") {
+      transportMode = "bus";
     }
     query = "";
     topN = INITIAL_TOP_N;
@@ -300,7 +306,7 @@
         <span class="label">Transport</span>
         <select
           bind:value={transportMode}
-          disabled={viewMode === "all-water" || viewMode === "all-rail"}
+          disabled={viewMode === "all-water" || viewMode === "all-rail" || viewMode === "map"}
           onchange={(event) => setTransportMode(event.target.value)}
         >
           {#each TRANSPORT_MODES as mode}
@@ -311,6 +317,8 @@
           <span class="hint">Viser alle båtavganger.</span>
         {:else if viewMode === "all-rail"}
           <span class="hint">Viser alle togavganger.</span>
+        {:else if viewMode === "map"}
+          <span class="hint">Kart viser kun bussforsinkelser.</span>
         {:else if transportMode === "rail"}
           <span class="hint">Tog kan gi 0 treff i Rogaland.</span>
         {/if}
@@ -336,7 +344,7 @@
     </div>
 
     {#if viewMode === "map"}
-      <DelayMap rows={filteredDelays} bbox={activeRegion?.bbox ?? null} />
+      <DelayMap rows={mapRows} bbox={activeRegion?.bbox ?? null} />
     {:else}
       <div class="table-container">
         <table>
