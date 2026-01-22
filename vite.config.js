@@ -16,6 +16,8 @@ export default defineConfig(({ command }) => ({
       },
     },
   },
-  base: command === "serve" ? "/" : "/entur-delays/",
+  // GitHub Pages on GHES serves the project at the site root.
+  // The Pages URL already includes the repository name, so we use "/" here.
+  base: "/",
   plugins: [svelte()],
 }));
