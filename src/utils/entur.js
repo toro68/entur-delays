@@ -19,7 +19,7 @@ const STOP_PLACES_QUERY = `
 `;
 
 const STOP_PLACE_DEPARTURES_QUERY = `
-  query StopPlaceDepartures($ids: [String!]!, $numberOfDepartures: Int!) {
+  query StopPlaceDepartures($ids: [String!]!, $numberOfDepartures: Int!, $timeRange: Int!) {
     stopPlaces(ids: $ids) {
       id
       name
@@ -31,7 +31,7 @@ const STOP_PLACE_DEPARTURES_QUERY = `
         name
         latitude
         longitude
-        estimatedCalls(timeRange: 7200, numberOfDepartures: $numberOfDepartures) {
+        estimatedCalls(timeRange: $timeRange, numberOfDepartures: $numberOfDepartures) {
           aimedDepartureTime
           expectedDepartureTime
           actualDepartureTime
@@ -63,7 +63,7 @@ const STOP_PLACE_DEPARTURES_QUERY = `
 
 // Cache
 let stopPlaceIdsCache = { ids: [], fetchedAt: 0, zone: '', maxStops: 0 };
-let delaysCache = { data: [], fetchedAt: 0, mode: '', zone: '' };
+let delaysCache = { data: [], fetchedAt: 0, mode: '', zone: '', viewMode: '' };
 const STOP_PLACE_CACHE_TTL = 10 * 60 * 1000; // 10 min
 const DELAYS_CACHE_TTL = 30 * 1000; // 30 sec
 
@@ -131,6 +131,9 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const maxStopsOverride = options?.maxStops;
   const viewMode = options?.viewMode ?? "delays";
   const includeAllStops = options?.includeAllStops === true;
+  const includeAllCalls = viewMode === "all";
+  const timeRange = includeAllCalls ? 21600 : 7200;
+  const numberOfDepartures = includeAllCalls ? 10 : 3;
   
   // Return cached data if fresh
   const now = Date.now();
@@ -138,6 +141,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
     delaysCache.data.length > 0 &&
     delaysCache.mode === mode &&
     delaysCache.zone === zone &&
+    delaysCache.viewMode === viewMode &&
     now - delaysCache.fetchedAt < DELAYS_CACHE_TTL
   ) {
     return {
@@ -161,7 +165,8 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
 
     const data = await enturGraphql(STOP_PLACE_DEPARTURES_QUERY, {
       ids: batch,
-      numberOfDepartures: 3,
+      numberOfDepartures,
+      timeRange,
     }).catch(() => null);
     const stopPlaces = data?.stopPlaces ?? [];
 
@@ -180,7 +185,9 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
 
           let delayMin = minutesBetween(aimedDepartureTime, expectedDepartureTime);
           if (delayMin == null) delayMin = isCanceled ? 0 : null;
-          if (viewMode === "cancellations") {
+          if (includeAllCalls) {
+            // keep all calls
+          } else if (viewMode === "cancellations") {
             if (!isCanceled) continue;
           } else if (!isCanceled && (delayMin == null || delayMin <= 0)) {
             continue;
@@ -229,7 +236,13 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   }
 
   let result = [];
-  if (viewMode === "cancellations") {
+  if (includeAllCalls) {
+    result = rows;
+    result.sort((a, b) => String(a.expectedDepartureTime ?? a.aimedDepartureTime ?? "").localeCompare(
+      String(b.expectedDepartureTime ?? b.aimedDepartureTime ?? "")
+    ));
+    result = result.slice(0, topN);
+  } else if (viewMode === "cancellations") {
     const cancelMap = new Map();
     for (const row of rows) {
       const key = row.serviceJourneyId && row.aimedDepartureTime
@@ -262,7 +275,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   }
   
   // Cache
-  delaysCache = { data: result, fetchedAt: Date.now(), mode, zone };
+  delaysCache = { data: result, fetchedAt: Date.now(), mode, zone, viewMode };
   
   return {
       generatedAt: new Date().toISOString(),

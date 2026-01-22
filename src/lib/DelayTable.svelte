@@ -20,6 +20,8 @@
   const VIEW_MODES = [
     { value: "delays", label: "Forsinkelser" },
     { value: "cancellations", label: "Innstillinger" },
+    { value: "all-water", label: "Alle avganger (båt)" },
+    { value: "all-rail", label: "Alle avganger (tog)" },
     { value: "map", label: "Kart" },
   ];
 
@@ -75,9 +77,16 @@
   }
 
   function getDelayClass(delayMin) {
+    if (delayMin == null) return "delay-none";
     if (delayMin >= 10) return "delay-high";
     if (delayMin >= 5) return "delay-medium";
     return "delay-low";
+  }
+
+  function formatDelay(row) {
+    if (row?.cancellation) return "–";
+    if (row?.delayMin == null) return "–";
+    return `${row.delayMin} min`;
   }
 
   function formatStatus(row) {
@@ -101,8 +110,12 @@
     if (!isInitial) refreshing = true;
     try {
       const maxStops = includeAllStops ? null : DEFAULT_MAX_STOPS_BY_ZONE[activeZone];
-      const effectiveViewMode = viewMode === "map" ? "delays" : viewMode;
-      const result = await fetchTopDelays(transportMode, {
+      const isAllView = viewMode === "all-water" || viewMode === "all-rail";
+      const effectiveViewMode = viewMode === "map" ? "delays" : (isAllView ? "all" : viewMode);
+      const effectiveTransportMode = isAllView
+        ? (viewMode === "all-water" ? "water" : "rail")
+        : transportMode;
+      const result = await fetchTopDelays(effectiveTransportMode, {
         zone: activeZone,
         topN,
         maxStops,
@@ -150,6 +163,14 @@
     filteredDelays.slice((page - 1) * TOP_N_STEP, (page - 1) * TOP_N_STEP + TOP_N_STEP)
   );
 
+  const viewLabel = $derived.by(() => {
+    if (viewMode === "cancellations") return "innstillinger";
+    if (viewMode === "all-water") return "alle avganger (båt)";
+    if (viewMode === "all-rail") return "alle avganger (tog)";
+    if (viewMode === "map") return "kart";
+    return "forsinkelser";
+  });
+
   function setZone(zone) {
     if (zone === activeZone) return;
     activeZone = zone;
@@ -175,6 +196,11 @@
   function setViewMode(mode) {
     if (mode === viewMode) return;
     viewMode = mode;
+    if (mode === "all-water") {
+      transportMode = "water";
+    } else if (mode === "all-rail") {
+      transportMode = "rail";
+    }
     query = "";
     topN = INITIAL_TOP_N;
     includeAllStops = false;
@@ -229,12 +255,7 @@
     </div>
   {:else}
     <div class="meta">
-      Oppdatert {formatDate(meta.generatedAt)} · {meta.transportMode} · Topp {meta.topN}
-      {#if viewMode === "cancellations"}
-        innstillinger
-      {:else}
-        forsinkelser
-      {/if}
+      Oppdatert {formatDate(meta.generatedAt)} · {meta.transportMode} · Topp {meta.topN} · {viewLabel}
       {#if refreshing}
         <span class="refreshing">Oppdaterer…</span>
       {/if}
@@ -277,12 +298,20 @@
       </label>
       <label class="select">
         <span class="label">Transport</span>
-        <select bind:value={transportMode} onchange={(event) => setTransportMode(event.target.value)}>
+        <select
+          bind:value={transportMode}
+          disabled={viewMode === "all-water" || viewMode === "all-rail"}
+          onchange={(event) => setTransportMode(event.target.value)}
+        >
           {#each TRANSPORT_MODES as mode}
             <option value={mode.value}>{mode.label}</option>
           {/each}
         </select>
-        {#if transportMode === "rail"}
+        {#if viewMode === "all-water"}
+          <span class="hint">Viser alle båtavganger.</span>
+        {:else if viewMode === "all-rail"}
+          <span class="hint">Viser alle togavganger.</span>
+        {:else if transportMode === "rail"}
           <span class="hint">Tog kan gi 0 treff i Rogaland.</span>
         {/if}
       </label>
@@ -327,7 +356,7 @@
             {#each pagedDelays as row (getRowKey(row))}
               <tr>
                 <td class="col-delay {getDelayClass(row.delayMin)}">
-                  {row.delayMin} min
+                  {formatDelay(row)}
                 </td>
                 <td class="col-journey" title={row.serviceJourneyId ?? ""}>
                   {formatJourneyId(row.serviceJourneyId)}
@@ -362,6 +391,10 @@
                 <td colspan="8" class="no-data">
                   {#if viewMode === "cancellations"}
                     Ingen innstillinger i valgt område/transport akkurat nå.
+                  {:else if viewMode === "all-water"}
+                    Ingen båtavganger i valgt område akkurat nå.
+                  {:else if viewMode === "all-rail"}
+                    Ingen togavganger i valgt område akkurat nå.
                   {:else}
                     Ingen treff
                   {/if}
@@ -641,6 +674,10 @@
 
   .delay-low {
     color: $delay-low;
+  }
+
+  .delay-none {
+    color: #94a3b8;
   }
 
   .line-badge {
