@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { fetchTopDelays } from "../utils/entur.js";
+  import DelayMap from "./DelayMap.svelte";
   import { REGIONS, getRegionByLabel, isRowInRegion } from "../config/regions.js";
 
   const REFRESH_MS = 60000; // 1 minutt
@@ -19,6 +20,7 @@
   const VIEW_MODES = [
     { value: "delays", label: "Forsinkelser" },
     { value: "cancellations", label: "Innstillinger" },
+    { value: "map", label: "Kart" },
   ];
 
   const ZONES = REGIONS.map((r) => r.label);
@@ -99,11 +101,12 @@
     if (!isInitial) refreshing = true;
     try {
       const maxStops = includeAllStops ? null : DEFAULT_MAX_STOPS_BY_ZONE[activeZone];
+      const effectiveViewMode = viewMode === "map" ? "delays" : viewMode;
       const result = await fetchTopDelays(transportMode, {
         zone: activeZone,
         topN,
         maxStops,
-        viewMode,
+        viewMode: effectiveViewMode,
         includeAllStops,
       });
 
@@ -303,68 +306,72 @@
       <div class="page-status">Side {page} av {pageCount}</div>
     </div>
 
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th class="col-delay">Forsinkelse</th>
-            <th class="col-journey">Tur</th>
-            <th class="col-status">Status</th>
-            <th class="col-line">Linje</th>
-            <th class="col-dest">Destinasjon</th>
-            <th class="col-stop">Stopp</th>
-            <th class="col-time">Planlagt</th>
-            <th class="col-time">Forventet</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each pagedDelays as row (getRowKey(row))}
+    {#if viewMode === "map"}
+      <DelayMap rows={filteredDelays} bbox={activeRegion?.bbox ?? null} />
+    {:else}
+      <div class="table-container">
+        <table>
+          <thead>
             <tr>
-              <td class="col-delay {getDelayClass(row.delayMin)}">
-                {row.delayMin} min
-              </td>
-              <td class="col-journey" title={row.serviceJourneyId ?? ""}>
-                {formatJourneyId(row.serviceJourneyId)}
-              </td>
-              <td class="col-status">
-                {#if row.cancellation}
-                  <span class="status-badge status-canceled">Kansellert</span>
-                {:else}
-                  <span class="status-badge">{formatStatus(row)}</span>
-                {/if}
-                {#if row.predictionInaccurate}
-                  <span class="status-warning" title="Usikker sanntid">⚠︎</span>
-                {/if}
-              </td>
-              <td class="col-line">
-                <span class="line-badge" title={row.transportSubmode ?? ""}>
-                  {row.linePublicCode ?? row.lineName ?? "–"}
-                </span>
-              </td>
-              <td class="col-dest">{formatDestination(row)}</td>
-              <td class="col-stop">{row.stopPlaceName ?? row.quayName ?? "–"}</td>
-              <td class="col-time">{formatTime(row.aimedDepartureTime)}</td>
-              <td class="col-time">
-                {#if row.realtime}
-                  <span class="realtime-dot" title="Sanntid">●</span>
-                {/if}
-                {formatTime(row.expectedDepartureTime)}
-              </td>
+              <th class="col-delay">Forsinkelse</th>
+              <th class="col-journey">Tur</th>
+              <th class="col-status">Status</th>
+              <th class="col-line">Linje</th>
+              <th class="col-dest">Destinasjon</th>
+              <th class="col-stop">Stopp</th>
+              <th class="col-time">Planlagt</th>
+              <th class="col-time">Forventet</th>
             </tr>
-          {:else}
-            <tr>
-              <td colspan="8" class="no-data">
-                {#if viewMode === "cancellations"}
-                  Ingen innstillinger i valgt område/transport akkurat nå.
-                {:else}
-                  Ingen treff
-                {/if}
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {#each pagedDelays as row (getRowKey(row))}
+              <tr>
+                <td class="col-delay {getDelayClass(row.delayMin)}">
+                  {row.delayMin} min
+                </td>
+                <td class="col-journey" title={row.serviceJourneyId ?? ""}>
+                  {formatJourneyId(row.serviceJourneyId)}
+                </td>
+                <td class="col-status">
+                  {#if row.cancellation}
+                    <span class="status-badge status-canceled">Kansellert</span>
+                  {:else}
+                    <span class="status-badge">{formatStatus(row)}</span>
+                  {/if}
+                  {#if row.predictionInaccurate}
+                    <span class="status-warning" title="Usikker sanntid">⚠︎</span>
+                  {/if}
+                </td>
+                <td class="col-line">
+                  <span class="line-badge" title={row.transportSubmode ?? ""}>
+                    {row.linePublicCode ?? row.lineName ?? "–"}
+                  </span>
+                </td>
+                <td class="col-dest">{formatDestination(row)}</td>
+                <td class="col-stop">{row.stopPlaceName ?? row.quayName ?? "–"}</td>
+                <td class="col-time">{formatTime(row.aimedDepartureTime)}</td>
+                <td class="col-time">
+                  {#if row.realtime}
+                    <span class="realtime-dot" title="Sanntid">●</span>
+                  {/if}
+                  {formatTime(row.expectedDepartureTime)}
+                </td>
+              </tr>
+            {:else}
+              <tr>
+                <td colspan="8" class="no-data">
+                  {#if viewMode === "cancellations"}
+                    Ingen innstillinger i valgt område/transport akkurat nå.
+                  {:else}
+                    Ingen treff
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   {/if}
 </div>
 
