@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  DEPLOY_PAGES: "false"
+
 permissions:
   contents: write
 
@@ -14,6 +17,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ env.DEPLOY_PAGES == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
