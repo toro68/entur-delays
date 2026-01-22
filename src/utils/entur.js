@@ -96,7 +96,7 @@ async function enturGraphql(query, variables) {
   return json.data;
 }
 
-async function getStopPlaceIdsByZone(zoneName, maxStopsOverride) {
+async function getStopPlaceIdsByZone(zoneName, maxStopsOverride, includeAllStops = false) {
   const now = Date.now();
   const cacheMaxStops = Number.isFinite(stopPlaceIdsCache.maxStops)
     ? stopPlaceIdsCache.maxStops
@@ -106,17 +106,18 @@ async function getStopPlaceIdsByZone(zoneName, maxStopsOverride) {
   if (
     stopPlaceIdsCache.ids.length > 0 &&
     stopPlaceIdsCache.zone === zoneName &&
-    (requestedMaxStops == null || cacheMaxStops >= requestedMaxStops) &&
+    (includeAllStops || requestedMaxStops == null || cacheMaxStops >= requestedMaxStops) &&
     now - stopPlaceIdsCache.fetchedAt < STOP_PLACE_CACHE_TTL
   ) {
-    return requestedMaxStops == null
-      ? stopPlaceIdsCache.ids
-      : stopPlaceIdsCache.ids.slice(0, requestedMaxStops);
+    if (includeAllStops || requestedMaxStops == null) return stopPlaceIdsCache.ids;
+    return stopPlaceIdsCache.ids.slice(0, requestedMaxStops);
   }
 
   const zone = getRegionByLabel(zoneName) ?? REGIONS[0];
   const data = await enturGraphql(STOP_PLACES_QUERY, zone.bbox);
-  const maxStops = Number.isFinite(maxStopsOverride) ? maxStopsOverride : zone.maxStops;
+  const maxStops = includeAllStops
+    ? Number.POSITIVE_INFINITY
+    : (Number.isFinite(maxStopsOverride) ? maxStopsOverride : zone.maxStops);
   const ids = (data?.stopPlacesByBbox ?? []).map((sp) => sp.id).slice(0, maxStops);
 
   stopPlaceIdsCache = { ids, fetchedAt: now, zone: zone.name, maxStops };
@@ -129,6 +130,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const topN = options?.topN ?? TOP_N_DEFAULT;
   const maxStopsOverride = options?.maxStops;
   const viewMode = options?.viewMode ?? "delays";
+  const includeAllStops = options?.includeAllStops === true;
   
   // Return cached data if fresh
   const now = Date.now();
@@ -146,7 +148,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
     };
   }
 
-  const stopPlaceIds = await getStopPlaceIdsByZone(zone, maxStopsOverride);
+  const stopPlaceIds = await getStopPlaceIdsByZone(zone, maxStopsOverride, includeAllStops);
 
   // Fetch in batches (single GraphQL request per batch)
   const BATCH_SIZE = 25;

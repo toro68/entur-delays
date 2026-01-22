@@ -18,7 +18,7 @@
   ];
   const VIEW_MODES = [
     { value: "delays", label: "Forsinkelser" },
-    { value: "cancellations", label: "Innstillingskartet" },
+    { value: "cancellations", label: "Innstillinger" },
   ];
 
   const ZONES = REGIONS.map((r) => r.label);
@@ -98,12 +98,13 @@
     const isInitial = loading;
     if (!isInitial) refreshing = true;
     try {
-      const maxStops = includeAllStops ? Number.POSITIVE_INFINITY : DEFAULT_MAX_STOPS_BY_ZONE[activeZone];
+      const maxStops = includeAllStops ? null : DEFAULT_MAX_STOPS_BY_ZONE[activeZone];
       const result = await fetchTopDelays(transportMode, {
         zone: activeZone,
         topN,
         maxStops,
         viewMode,
+        includeAllStops,
       });
 
       error = null;
@@ -352,7 +353,13 @@
             </tr>
           {:else}
             <tr>
-              <td colspan="8" class="no-data">Ingen treff</td>
+              <td colspan="8" class="no-data">
+                {#if viewMode === "cancellations"}
+                  Ingen innstillinger i valgt område/transport akkurat nå.
+                {:else}
+                  Ingen treff
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>
