@@ -128,6 +128,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
   const zone = options?.zone ?? REGIONS[0].label;
   const topN = options?.topN ?? TOP_N_DEFAULT;
   const maxStopsOverride = options?.maxStops;
+  const viewMode = options?.viewMode ?? "delays";
   
   // Return cached data if fresh
   const now = Date.now();
@@ -177,7 +178,11 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
 
           let delayMin = minutesBetween(aimedDepartureTime, expectedDepartureTime);
           if (delayMin == null) delayMin = isCanceled ? 0 : null;
-          if (!isCanceled && (delayMin == null || delayMin <= 0)) continue;
+          if (viewMode === "cancellations") {
+            if (!isCanceled) continue;
+          } else if (!isCanceled && (delayMin == null || delayMin <= 0)) {
+            continue;
+          }
 
           // Dedup: same serviceJourney + aimedDepartureTime can appear across stop places.
           if (serviceJourneyId && aimedDepartureTime) {
@@ -221,22 +226,38 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
     }
   }
 
-  const dedupedMap = new Map();
-  for (const row of rows) {
-    const lineKey = row.linePublicCode ?? row.lineName ?? null;
-    const key = lineKey
-      ? `${lineKey}|${row.destination ?? ""}`
-      : `__sj:${row.serviceJourneyId ?? ""}|${row.aimedDepartureTime ?? ""}|${row.stopPlaceId ?? ""}`;
-
-    const existing = dedupedMap.get(key);
-    if (!existing || row.delayMin > existing.delayMin) {
-      dedupedMap.set(key, row);
+  let result = [];
+  if (viewMode === "cancellations") {
+    const cancelMap = new Map();
+    for (const row of rows) {
+      const key = row.serviceJourneyId && row.aimedDepartureTime
+        ? `${row.serviceJourneyId}|${row.aimedDepartureTime}`
+        : `${row.stopPlaceId ?? ""}|${row.quayId ?? ""}|${row.aimedDepartureTime ?? ""}`;
+      if (!cancelMap.has(key)) cancelMap.set(key, row);
     }
-  }
+    result = Array.from(cancelMap.values());
+    result.sort((a, b) => String(b.expectedDepartureTime ?? b.aimedDepartureTime ?? "").localeCompare(
+      String(a.expectedDepartureTime ?? a.aimedDepartureTime ?? "")
+    ));
+    result = result.slice(0, topN);
+  } else {
+    const dedupedMap = new Map();
+    for (const row of rows) {
+      const lineKey = row.linePublicCode ?? row.lineName ?? null;
+      const key = lineKey
+        ? `${lineKey}|${row.destination ?? ""}`
+        : `__sj:${row.serviceJourneyId ?? ""}|${row.aimedDepartureTime ?? ""}|${row.stopPlaceId ?? ""}`;
 
-  const uniqueRows = Array.from(dedupedMap.values());
-  uniqueRows.sort((a, b) => b.delayMin - a.delayMin);
-  const result = uniqueRows.slice(0, topN);
+      const existing = dedupedMap.get(key);
+      if (!existing || row.delayMin > existing.delayMin) {
+        dedupedMap.set(key, row);
+      }
+    }
+
+    const uniqueRows = Array.from(dedupedMap.values());
+    uniqueRows.sort((a, b) => b.delayMin - a.delayMin);
+    result = uniqueRows.slice(0, topN);
+  }
   
   // Cache
   delaysCache = { data: result, fetchedAt: Date.now(), mode, zone };

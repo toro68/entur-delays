@@ -15,8 +15,6 @@
     { value: "bus", label: "Buss" },
     { value: "water", label: "Båt" },
     { value: "rail", label: "Tog" },
-    { value: "tram", label: "Trikk" },
-    { value: "metro", label: "T-bane" },
   ];
   const VIEW_MODES = [
     { value: "delays", label: "Forsinkelser" },
@@ -101,7 +99,12 @@
     if (!isInitial) refreshing = true;
     try {
       const maxStops = includeAllStops ? Number.POSITIVE_INFINITY : DEFAULT_MAX_STOPS_BY_ZONE[activeZone];
-      const result = await fetchTopDelays(transportMode, { zone: activeZone, topN, maxStops });
+      const result = await fetchTopDelays(transportMode, {
+        zone: activeZone,
+        topN,
+        maxStops,
+        viewMode,
+      });
 
       error = null;
       delays = result.data ?? [];
@@ -275,6 +278,9 @@
             <option value={mode.value}>{mode.label}</option>
           {/each}
         </select>
+        {#if transportMode === "rail"}
+          <span class="hint">Tog kan gi 0 treff i Rogaland.</span>
+        {/if}
       </label>
       {#if normalizedQuery}
         <div class="result-count">Viser {filteredDelays.length} av {delays.length}</div>
@@ -514,6 +520,11 @@
   .select {
     display: grid;
     gap: 6px;
+  }
+
+  .hint {
+    font-size: 0.75rem;
+    color: #94a3b8;
   }
 
   .label {
