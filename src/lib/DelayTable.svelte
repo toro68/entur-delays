@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from "svelte";
-  import { fetchTopDelays } from "../utils/entur.js";
+  import { fetchTopDelays, fetchVehiclePositions } from "../utils/entur.js";
   import DelayMap from "./DelayMap.svelte";
   import { REGIONS, getRegionByLabel, isRowInRegion } from "../config/regions.js";
 
@@ -76,6 +76,12 @@
     return s.length > 12 ? s.slice(-12) : s;
   }
 
+   function formatVehicleRef(value) {
+     if (!value) return "–";
+     const s = String(value);
+     return s.length > 12 ? s.slice(-12) : s;
+   }
+
   function getDelayClass(delayMin) {
     if (delayMin == null) return "delay-none";
     if (delayMin >= 10) return "delay-high";
@@ -115,7 +121,7 @@
       const effectiveTransportMode = isAllView
         ? (viewMode === "all-water" ? "water" : "rail")
         : transportMode;
-      const result = await fetchTopDelays(effectiveTransportMode, {
+        const result = await fetchTopDelays(effectiveTransportMode, {
         zone: activeZone,
         topN,
         maxStops,
@@ -123,8 +129,21 @@
         includeAllStops,
       });
 
+        let vehicleMap = new Map();
+        if (effectiveTransportMode === "bus") {
+          try {
+            vehicleMap = await fetchVehiclePositions("KOL");
+          } catch (err) {
+            vehicleMap = new Map();
+          }
+        }
+
       error = null;
-      delays = result.data ?? [];
+        delays = (result.data ?? []).map((row) => {
+          const key = row?.datedServiceJourneyId ?? row?.serviceJourneyId ?? null;
+          const vehicleRef = key ? (vehicleMap.get(key) ?? null) : null;
+          return { ...row, vehicleRef };
+        });
       meta = {
         generatedAt: result.generatedAt,
         transportMode: result.transportMode,
@@ -351,7 +370,7 @@
           <thead>
             <tr>
               <th class="col-delay">Forsinkelse</th>
-              <th class="col-journey">Tur</th>
+              <th class="col-vehicle">Vogn</th>
               <th class="col-status">Status</th>
               <th class="col-line">Linje</th>
               <th class="col-dest">Destinasjon</th>
@@ -366,8 +385,8 @@
                 <td class="col-delay {getDelayClass(row.delayMin)}">
                   {formatDelay(row)}
                 </td>
-                <td class="col-journey" title={row.serviceJourneyId ?? ""}>
-                  {formatJourneyId(row.serviceJourneyId)}
+                <td class="col-vehicle" title={row.vehicleRef ?? row.serviceJourneyId ?? ""}>
+                  {formatVehicleRef(row.vehicleRef)}
                 </td>
                 <td class="col-status">
                   {#if row.cancellation}
@@ -666,7 +685,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .col-journey {
+  .col-vehicle {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-variant-numeric: tabular-nums;
     color: #94a3b8;

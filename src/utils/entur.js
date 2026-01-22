@@ -2,6 +2,8 @@
 import { REGIONS, getRegionByLabel } from "../config/regions.js";
 const ENTUR_ENDPOINT = 'https://api.entur.io/journey-planner/v3/graphql';
 const ENTUR_CLIENT_NAME = 'aftenbladet-forsinkelser';
+const ENTUR_VM_ENDPOINT = 'https://api.entur.io/realtime/v1/rest/vm';
+const ENTUR_VM_REQUESTOR = 'aftenbladet-forsinkelser-vm';
 const TOP_N_DEFAULT = 25;
 
 
@@ -44,6 +46,9 @@ const STOP_PLACE_DEPARTURES_QUERY = `
           predictionInaccurate
           occupancyStatus
           destinationDisplay { frontText via }
+          datedServiceJourney {
+            id
+          }
           serviceJourney {
             id
             line {
@@ -64,8 +69,10 @@ const STOP_PLACE_DEPARTURES_QUERY = `
 // Cache
 let stopPlaceIdsCache = { ids: [], fetchedAt: 0, zone: '', maxStops: 0 };
 let delaysCache = { data: [], fetchedAt: 0, mode: '', zone: '', viewMode: '' };
+let vehicleCache = { data: new Map(), fetchedAt: 0 };
 const STOP_PLACE_CACHE_TTL = 10 * 60 * 1000; // 10 min
 const DELAYS_CACHE_TTL = 30 * 1000; // 30 sec
+const VEHICLE_CACHE_TTL = 30 * 1000; // 30 sec
 
 function minutesBetween(aimedIso, expectedIso) {
   if (!aimedIso || !expectedIso) return null;
@@ -94,6 +101,43 @@ async function enturGraphql(query, variables) {
     throw new Error(`GraphQL feil: ${json.errors[0].message}`);
   }
   return json.data;
+}
+
+export async function fetchVehiclePositions(datasource = 'KOL') {
+  const now = Date.now();
+  if (vehicleCache.data.size > 0 && now - vehicleCache.fetchedAt < VEHICLE_CACHE_TTL) {
+    return vehicleCache.data;
+  }
+
+  const url = new URL(ENTUR_VM_ENDPOINT);
+  url.searchParams.set('requestorId', ENTUR_VM_REQUESTOR);
+  if (datasource) url.searchParams.set('datasource', datasource);
+
+  const res = await fetch(url.toString(), { method: 'GET' });
+  if (!res.ok) {
+    throw new Error(`Entur VM feil: ${res.status}`);
+  }
+
+  const xmlText = await res.text();
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, 'text/xml');
+  const map = new Map();
+
+  const activities = doc.getElementsByTagName('VehicleActivity');
+  for (const activity of activities) {
+    const journey = activity.getElementsByTagName('MonitoredVehicleJourney')[0];
+    if (!journey) continue;
+    const datedRef = journey.getElementsByTagName('DatedVehicleJourneyRef')[0]?.textContent?.trim() ?? null;
+    const vehicleJourneyRef = journey.getElementsByTagName('VehicleJourneyRef')[0]?.textContent?.trim() ?? null;
+    const vehicleRef = journey.getElementsByTagName('VehicleRef')[0]?.textContent?.trim() ?? null;
+    if (vehicleRef) {
+      if (datedRef) map.set(datedRef, vehicleRef);
+      if (vehicleJourneyRef) map.set(vehicleJourneyRef, vehicleRef);
+    }
+  }
+
+  vehicleCache = { data: map, fetchedAt: now };
+  return map;
 }
 
 async function getStopPlaceIdsByZone(zoneName, maxStopsOverride, includeAllStops = false) {
@@ -175,6 +219,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
       for (const quay of sp.quays ?? []) {
         for (const call of quay.estimatedCalls ?? []) {
           const serviceJourneyId = call?.serviceJourney?.id ?? null;
+          const datedServiceJourneyId = call?.datedServiceJourney?.id ?? null;
           const aimedDepartureTime = call?.aimedDepartureTime ?? null;
           const expectedDepartureTime = call?.expectedDepartureTime ?? null;
           const realtimeState = call?.realtimeState ?? null;
@@ -229,6 +274,7 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
             quayId: quay?.id ?? null,
             stopPlaceId: sp?.id ?? null,
             serviceJourneyId,
+            datedServiceJourneyId,
           });
         }
       }
