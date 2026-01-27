@@ -1,8 +1,10 @@
 <script>
   import DelayTable from "./lib/DelayTable.svelte";
+  import PasswordProtect from "./lib/PasswordProtect.svelte";
 </script>
 
-<section class="entur-delays-section">
+<PasswordProtect>
+  <section class="entur-delays-section">
   <div class="container">
     <header class="header">
       <h1>🚦 Kollektivforsinkelser</h1>
@@ -56,3 +58,4 @@
     }
   }
 </style>
+</PasswordProtect>
