@@ -302,20 +302,19 @@ export async function fetchTopDelays(transportMode = 'bus', options = {}) {
     ));
     result = result.slice(0, topN);
   } else {
-    const dedupedMap = new Map();
+    const perDepartureMap = new Map();
     for (const row of rows) {
-      const lineKey = row.linePublicCode ?? row.lineName ?? null;
-      const key = lineKey
-        ? `${lineKey}|${row.destination ?? ""}`
-        : `__sj:${row.serviceJourneyId ?? ""}|${row.aimedDepartureTime ?? ""}|${row.stopPlaceId ?? ""}`;
+      const key = row.serviceJourneyId && row.aimedDepartureTime
+        ? `${row.serviceJourneyId}|${row.aimedDepartureTime}`
+        : `${row.datedServiceJourneyId ?? ""}|${row.stopPlaceId ?? ""}|${row.quayId ?? ""}|${row.aimedDepartureTime ?? row.expectedDepartureTime ?? ""}`;
 
-      const existing = dedupedMap.get(key);
+      const existing = perDepartureMap.get(key);
       if (!existing || row.delayMin > existing.delayMin) {
-        dedupedMap.set(key, row);
+        perDepartureMap.set(key, row);
       }
     }
 
-    const uniqueRows = Array.from(dedupedMap.values());
+    const uniqueRows = Array.from(perDepartureMap.values());
     uniqueRows.sort((a, b) => b.delayMin - a.delayMin);
     result = uniqueRows.slice(0, topN);
   }
