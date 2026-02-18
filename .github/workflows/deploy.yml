@@ -25,6 +25,8 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+        env:
+          VITE_BASE_PATH: /entur-delays/
 
       - name: Deploy to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4

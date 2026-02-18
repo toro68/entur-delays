@@ -21,7 +21,8 @@ export default defineConfig(({ command }) => ({
     },
   },
   // S3 hosting på editorial.aftenbladet.no/2026/sa-entur-delays/
+  // GitHub Pages kan overstyre med VITE_BASE_PATH (f.eks. /entur-delays/)
   // Bruk relative stier i dev mode, full path i production build
-  base: command === "build" ? projectPath : "/",
+  base: command === "build" ? (process.env.VITE_BASE_PATH ?? projectPath) : "/",
   plugins: [svelte()],
 }));

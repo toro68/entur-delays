@@ -1,4 +1,4 @@
-import { exec } from "node:child_process";
+import { execSync } from "node:child_process";
 import { readFile } from "fs/promises";
 
 const info = JSON.parse(
@@ -8,11 +8,14 @@ const info = JSON.parse(
 const bucketName = "sa-editorial-webhosting";
 const path = `/2026/${info.name}`;
 
-exec(
+execSync(
   `aws s3 sync dist/ s3://${bucketName}${path} --cache-control max-age=300,s-maxage=86400`,
+  { stdio: "inherit" },
 );
-exec(
+
+execSync(
   `aws cloudfront create-invalidation --distribution-id E2RHRFTQWI2N09 --paths ${path}/*`,
+  { stdio: "inherit" },
 );
 
 console.log(`\nhttps://editorial.aftenbladet.no${path}`);
